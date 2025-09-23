@@ -1,0 +1,6 @@
+streamlit
+streamlit-autorefresh
+requests
+pytz
+wcwidth
+tabulate
