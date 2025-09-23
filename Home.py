@@ -300,11 +300,31 @@ def run_volume_check():
             all_spike_msgs.extend(spikes)
 
     if all_spike_msgs:
-        msg_lines = [f"*⚡ Volume Spike Alert — {bucket_minutes} min bucket*"]
-        msg_lines.extend(all_spike_msgs)
-        msg = "\n\n".join(msg_lines)
-        print(msg)
-        send_telegram_alert(msg)
+        formatted_msgs = []
+        for raw in all_spike_msgs:
+            try:
+                parts = raw.split(" — Vol ")
+                instrument_time = parts[0].split()
+                instrument = instrument_time[0]
+                time_str = " ".join(instrument_time[1:])
+                vol_part = parts[1]
+                vol_val = vol_part.split(" ")[0]
+                spike_delta = vol_part.split("(")[-1].split(")")[0]
+                sentiment = vol_part.split()[-1]
+
+                formatted_msgs.append(
+                    f"🔍 Instrument: {instrument}\n"
+                    f"🕒 Time: {time_str}\n"
+                    f"📊 Volume: {vol_val} {spike_delta}\n"
+                    f"📈 Sentiment: {sentiment}"
+                )
+            except:
+                formatted_msgs.append(raw)
+
+     alert_msg = f"⚡ Volume Spike Alert — {bucket_minutes} min bucket\n\n" + "\n\n".join(formatted_msgs)
+     print(alert_msg)
+     send_telegram_alert(alert_msg)
+
     else:
         st.info("ℹ️ No spikes in the last two candles.")
 
