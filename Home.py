@@ -321,15 +321,13 @@ def run_volume_check():
             except:
                 formatted_msgs.append(raw)
 
-     alert_msg = f"⚡ Volume Spike Alert — {bucket_minutes} min bucket\n\n" + "\n\n".join(formatted_msgs)
-     print(alert_msg)
-     send_telegram_alert(alert_msg)
-
+        alert_msg = f"⚡ Volume Spike Alert — {bucket_minutes} min bucket\n\n" + "\n\n".join(formatted_msgs)
+        print(alert_msg)
+        send_telegram_alert(alert_msg)
     else:
         st.info("ℹ️ No spikes in the last two candles.")
 
     save_alerted_candles(alerted_candles)
-
 
 
 # ====== PAGE CONFIG ======
