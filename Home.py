@@ -301,10 +301,9 @@ def run_volume_check():
 
     if all_spike_msgs:
         msg_lines = [f"*⚡ Volume Spike Alert — {bucket_minutes} min bucket*"]
-        for line in all_spike_msgs:
-            msg_lines.append(f"• {line}")
-        msg = "\n".join(msg_lines)
-        st.warning(msg)
+        msg_lines.extend(all_spike_msgs)
+        msg = "\n\n".join(msg_lines)
+        print(msg)
         send_telegram_alert(msg)
     else:
         st.info("ℹ️ No spikes in the last two candles.")
