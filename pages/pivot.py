@@ -141,7 +141,7 @@ def run_pivot(granularity="D", custom_date=None):
     label = "Daily" if granularity == "D" else "Weekly"
     pivot_date = custom_date if custom_date else today  # pivot date = selected date
     basis = "previous trading day (D candle)" if granularity == "D" else "previous week (W candle)"
-    st.subheader(f"📅 {label} Pivot Levels for {pivot_date} — based on {basis}")
+    st.subheader(f"📅 {label} Pivot Levels for {pivot_date}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
