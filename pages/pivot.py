@@ -27,88 +27,49 @@ INSTRUMENTS = {
     "US30": "US30_USD",
 }
 
-# Use OANDA's Bid prices to match TradingView OANDA charts (Open/Close often differ on Mid).
-# Change to "M" (mid) or "A" (ask) if you want a different source.
-PRICE_TYPE = "M"
+# Use the same price source as your working script
+PRICE_TYPE = "M"  # Mid
 OHLC_KEY = {"B": "bid", "M": "mid", "A": "ask"}[PRICE_TYPE]
 
 def iso_midnight_utc(d):
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
-# 🔍 Last completed candle (uses OANDA D/W candles directly)
-def fetch_last_completed_candle(instrument, granularity="D"):
+def _request_candles(instrument, params):
     url = BASE_URL.format(instrument)
-    params = {"granularity": granularity, "price": PRICE_TYPE, "count": 2}
-    if granularity == "D":
-        # Align daily candles to 00:00–23:59:59 UTC
-        params.update({"alignmentTimezone": "UTC", "dailyAlignment": 0})
     r = requests.get(url, headers=HEADERS, params=params, timeout=20)
     r.raise_for_status()
-    candles = r.json().get("candles", [])
+    return r.json().get("candles", [])
+
+def _extract_ohlc(candle):
+    ohlc = candle[OHLC_KEY]
+    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"])
+
+# 🔍 Last completed candle (same method as your working script)
+def fetch_last_completed_candle(instrument, granularity="D"):
+    params = {"granularity": granularity, "price": PRICE_TYPE, "count": 2}
+    candles = _request_candles(instrument, params)
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
-    prev = candles[-2]  # last completed
-    date = prev["time"][:10]
-    ohlc = prev[OHLC_KEY]
-    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
+    c = candles[-2]  # last completed
+    o, h, l, c_close = _extract_ohlc(c)
+    return o, h, l, c_close, c["time"][:10]
 
-# 🗓️ Previous trading day helper (skip Saturday/Sunday)
-def previous_trading_day(d):
-    d = d - timedelta(days=1)
-    while d.weekday() >= 5:  # 5=Sat, 6=Sun
-        d -= timedelta(days=1)
-    return d
-
-# 🔎 Exact daily candle for a UTC date using OANDA D candles (00:00–23:59:59 UTC)
-def fetch_daily_candle_by_date_utc(instrument, candle_date):
-    url = BASE_URL.format(instrument)
-    params = {
-        "granularity": "D",
-        "price": PRICE_TYPE,
-        "alignmentTimezone": "UTC",
-        "dailyAlignment": 0,
-        "from": iso_midnight_utc(candle_date),
-        "to": iso_midnight_utc(candle_date + timedelta(days=1)),
-    }
-    r = requests.get(url, headers=HEADERS, params=params, timeout=20)
-    r.raise_for_status()
-    candles = r.json().get("candles", [])
-    target = candle_date.strftime("%Y-%m-%d")
-    for c in candles:
-        if c.get("complete", True) and c["time"][:10] == target:
-            ohlc = c[OHLC_KEY]
-            return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), target
-    raise ValueError(f"Daily candle for {instrument} on {target} (UTC) not found")
-
-# 🔁 Prior-period fetcher using native OANDA D/W candles
-def fetch_prior_period_candle(instrument, granularity, selected_date):
-    if granularity == "D":
-        # Previous trading day (Fri for Mon/Sat/Sun; D-1 for Tue–Fri)
-        look = previous_trading_day(selected_date)
-        # Step back if holiday/no data (max 10 steps)
-        for _ in range(10):
-            try:
-                return fetch_daily_candle_by_date_utc(instrument, look)
-            except Exception:
-                look = previous_trading_day(look)
-        raise ValueError(f"Could not find a prior daily candle before {selected_date}")
-    else:
-        # Weekly: last completed weekly candle before selected date
-        url = BASE_URL.format(instrument)
-        params = {
-            "granularity": "W",
-            "price": PRICE_TYPE,
-            "to": iso_midnight_utc(selected_date),  # strictly before this date
-            "count": 1,
-        }
-        r = requests.get(url, headers=HEADERS, params=params, timeout=20)
-        r.raise_for_status()
-        candles = r.json().get("candles", [])
-        if not candles:
-            raise ValueError(f"No prior weekly candle before {selected_date} for {instrument}")
-        c = candles[-1]
-        ohlc = c[OHLC_KEY]
-        return float(ohlc["o"]), float(ohllc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
+# 🔁 Prior completed candle strictly before a date (same method style)
+def fetch_prior_candle_before_date(instrument, granularity, selected_date):
+    # to=00:00Z of selected date gives the last completed candle strictly before that date
+    params = {"granularity": granularity, "price": PRICE_TYPE, "to": iso_midnight_utc(selected_date), "count": 1}
+    # Fallback loop in case of holidays or empty window
+    step = 1 if granularity == "D" else 7
+    t = selected_date
+    for _ in range(10 if granularity == "D" else 6):
+        params["to"] = iso_midnight_utc(t)
+        candles = _request_candles(instrument, params)
+        if candles:
+            c = candles[-1]
+            o, h, l, c_close = _extract_ohlc(c)
+            return o, h, l, c_close, c["time"][:10]
+        t = t - timedelta(days=step)
+    raise ValueError(f"No prior {granularity} candle found before {selected_date} for {instrument}")
 
 # 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
@@ -157,13 +118,13 @@ def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
     hdr_date = custom_date if custom_date else today
-    basis = "previous trading day (UTC D candle)" if granularity == "D" else "previous week (W candle)"
+    basis = "previous daily candle" if granularity == "D" else "previous weekly candle"
     st.subheader(f"📅 {label} Pivot Levels for {hdr_date} — based on {basis}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                o, h, l, c, used_date = fetch_prior_period_candle(symbol, granularity, custom_date)
+                o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, custom_date)
             else:
                 o, h, l, c, used_date = fetch_last_completed_candle(symbol, granularity)
 
