@@ -147,21 +147,24 @@ def render_pivot_levels_native(rows):
 def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
-    hdr_date = custom_date if custom_date else today
+    pivot_date = custom_date if custom_date else today  # <-- pivot date (selected date)
     basis = "previous trading day (UTC D candle)" if granularity == "D" else "previous week (W candle)"
-    st.subheader(f"📅 {label} Pivot Levels for {hdr_date} — based on {basis}")
+    st.subheader(f"📅 {label} Pivot Levels for {pivot_date} — based on {basis}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, custom_date)
+                # Fetch OHLC of the previous trading day/week relative to the pivot_date
+                o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, pivot_date)
             else:
                 o, h, l, c, used_date = fetch_last_completed_candle(symbol, granularity)
 
             pivots = calculate_pivots(h, l, c)
+            # Log using the candle date used for pivots
             log_to_csv(name, used_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
 
+            # Show both: pivot date (header) and the candle used (per instrument)
             st.markdown(f"### 📊 {name} — candle used: {used_date}")
 
             cols = st.columns(4)
