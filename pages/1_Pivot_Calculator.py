@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import requests
 import csv
 import os
@@ -18,29 +18,29 @@ except Exception:
     st.stop()
 
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
-BASE_URL = f"https://api-fxpractice.oanda.com/v3/instruments/{{}}/candles"
+BASE_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
 LOG_FILE = "pivot_log.csv"
 
 # 📈 Instruments
 INSTRUMENTS = {
     "GOLD": "XAU_USD",
     "NAS100": "NAS100_USD",
-    "US30": "US30_USD"
+    "US30": "US30_USD",
 }
 
 # 🔍 Fetch OHLC (daily or weekly)
 def fetch_ohlc(instrument, granularity="D"):
     params = {"granularity": granularity, "count": 2, "price": "M"}
     url = BASE_URL.format(instrument)
-    r = requests.get(url, headers=HEADERS, params=params)
+    r = requests.get(url, headers=HEADERS, params=params, timeout=20)
     r.raise_for_status()
-    candles = r.json().get('candles', [])
+    candles = r.json().get("candles", [])
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
     prev = candles[-2]
-    date = prev['time'][:10]
-    ohlc = prev['mid']
-    return float(ohlc['o']), float(ohlc['h']), float(ohlc['l']), float(ohlc['c']), date
+    date = prev["time"][:10]
+    ohlc = prev["mid"]
+    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
 
 # 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
@@ -51,7 +51,15 @@ def calculate_pivots(high, low, close):
     s1 = 2 * pivot - high
     s2 = pivot - (high - low)
     s3 = low - 2 * (high - pivot)
-    return round(r3, 4), round(r2, 4), round(r1, 4), round(pivot, 4), round(s1, 4), round(s2, 4), round(s3, 4)
+    return (
+        round(r3, 4),
+        round(r2, 4),
+        round(r1, 4),
+        round(pivot, 4),
+        round(s1, 4),
+        round(s2, 4),
+        round(s3, 4),
+    )
 
 # 🧾 Log to CSV
 def log_to_csv(name, date, o, h, l, c, pivots):
@@ -59,14 +67,53 @@ def log_to_csv(name, date, o, h, l, c, pivots):
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Name", "Date", "Open", "High", "Low", "Close", "R3", "R2", "R1", "Pivot", "S1", "S2", "S3"])
+            writer.writerow(
+                [
+                    "Name",
+                    "Date",
+                    "Open",
+                    "High",
+                    "Low",
+                    "Close",
+                    "R3",
+                    "R2",
+                    "R1",
+                    "Pivot",
+                    "S1",
+                    "S2",
+                    "S3",
+                ]
+            )
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
-# 🧰 Render pivot table with fixed-layout copy buttons (auto-height so last row is visible)
-def render_pivot_table(name, levels):
+# 🎨 Theme helpers
+def get_theme():
+    base = st.get_option("theme.base") or "light"
+    return {
+        "base": base,
+        "primary": st.get_option("theme.primaryColor") or "#0ea5e9",
+        "text": st.get_option("theme.textColor")
+        or ("#FAFAFA" if base == "dark" else "#1F2937"),
+        "bg": st.get_option("theme.backgroundColor") or ("#0E1117" if base == "dark" else "#FFFFFF"),
+        "sbg": st.get_option("theme.secondaryBackgroundColor") or ("#262730" if base == "dark" else "#F0F2F6"),
+    }
+
+# 🧰 Render pivot table with theme-aware styles
+def render_pivot_table(name, levels, theme=None):
     """
     levels: list of tuples [(label, value), ...]
     """
+    if theme is None:
+        theme = get_theme()
+
+    base = theme["base"]
+    text_color = theme["text"]
+    primary = theme["primary"]
+    bg = theme["bg"]
+
+    divider = "rgba(0,0,0,0.08)" if base == "light" else "rgba(255,255,255,0.15)"
+    zebra = "rgba(0,0,0,0.03)" if base == "light" else "rgba(255,255,255,0.05)"
+
     table_id = f"tbl_{name}_{uuid4().hex}"
     rows_html = []
     for i, (lvl, val) in enumerate(levels):
@@ -75,7 +122,8 @@ def render_pivot_table(name, levels):
         except Exception:
             val_str = str(val)
         btn_id = f"btn_{i}_{uuid4().hex}"
-        rows_html.append(f"""
+        rows_html.append(
+            f"""
             <tr>
               <td class="lvl-td">{lvl}</td>
               <td class="val-td">{val_str}</td>
@@ -85,65 +133,92 @@ def render_pivot_table(name, levels):
                 </button>
               </td>
             </tr>
-        """)
+        """
+        )
     rows_html = "\n".join(rows_html)
 
     html = f"""
     <style>
-    #{table_id} table {{
-        width: 100%;
-        border-collapse: collapse;
-        table-layout: fixed; /* prevents column shift */
-        margin-top: 6px;
-    }}
-    #{table_id} col.col-level {{ width: 20%; }}
-    #{table_id} col.col-value {{ width: 55%; }}
-    #{table_id} col.col-copy  {{ width: 25%; }}
+      /* Sync iframe document background with Streamlit theme */
+      html, body {{
+          background: {bg};
+          color: {text_color};
+          margin: 0;
+          padding: 0;
+      }}
 
-    #{table_id} th, #{table_id} td {{
-        border-bottom: 1px solid rgba(0,0,0,0.08);
-        padding: 10px 12px;
-        box-sizing: border-box;
-        vertical-align: middle;
-    }}
-    #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
-    #{table_id} th {{
-        text-align: left;
-        font-weight: 700;
-        font-size: 14px;
-    }}
-    #{table_id} .lvl-td {{ font-weight: 600; white-space: nowrap; }}
-    #{table_id} .val-td {{
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        white-space: nowrap;
-    }}
-    #{table_id} .copy-td {{
-        display: flex;
-        align-items: center;
-        white-space: nowrap;
-    }}
-    /* Fixed-width button to avoid any nudge when text changes */
-    #{table_id} .copy-btn {{
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 96px; /* keep button width constant */
-        height: 32px;
-        padding: 0 10px;
-        border-radius: 6px;
-        background: #0ea5e9;
-        color: #fff;
-        border: 2px solid transparent; /* reserve space for focus border */
-        cursor: pointer;
-        font-weight: 600;
-        white-space: nowrap;
-    }}
-    #{table_id} .copy-btn:hover {{ background: #0284c7; }}
-    #{table_id} .copy-btn:focus-visible {{
-        border-color: #38bdf8; /* accessible focus without layout shift */
-        outline: none;
-    }}
-    #{table_id} .copy-btn.copied {{ background: #16a34a; }}
+      #{table_id} {{
+          color: {text_color};
+      }}
+
+      #{table_id} table {{
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed; /* prevents column shift */
+          margin-top: 6px;
+          background: transparent;
+      }}
+
+      #{table_id} col.col-level {{ width: 20%; }}
+      #{table_id} col.col-value {{ width: 55%; }}
+      #{table_id} col.col-copy  {{ width: 25%; }}
+
+      #{table_id} th, #{table_id} td {{
+          border-bottom: 1px solid {divider};
+          padding: 10px 12px;
+          box-sizing: border-box;
+          vertical-align: middle;
+          color: inherit; /* use the theme text color */
+      }}
+
+      #{table_id} tr:nth-child(even) {{ background: {zebra}; }}
+
+      #{table_id} th {{
+          text-align: left;
+          font-weight: 700;
+          font-size: 14px;
+      }}
+
+      #{table_id} .lvl-td {{ font-weight: 600; white-space: nowrap; }}
+
+      #{table_id} .val-td {{
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          white-space: nowrap;
+      }}
+
+      #{table_id} .copy-td {{
+          display: flex;
+          align-items: center;
+          white-space: nowrap;
+      }}
+
+      /* Fixed-width button to avoid any nudge when text changes */
+      #{table_id} .copy-btn {{
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 96px; /* keep button width constant */
+          height: 32px;
+          padding: 0 10px;
+          border-radius: 6px;
+          background: {primary};
+          color: #fff;
+          border: 2px solid transparent; /* reserve space for focus border */
+          cursor: pointer;
+          font-weight: 600;
+          white-space: nowrap;
+          transition: filter .12s ease, transform .02s ease;
+      }}
+
+      #{table_id} .copy-btn:hover {{ filter: brightness(0.92); }}
+      #{table_id} .copy-btn:active {{ transform: translateY(1px); }}
+
+      #{table_id} .copy-btn:focus-visible {{
+          border-color: {primary}; /* accessible focus without layout shift */
+          outline: none;
+      }}
+
+      #{table_id} .copy-btn.copied {{ background: #16a34a; }}
     </style>
 
     <div id="{table_id}">
@@ -207,7 +282,6 @@ def render_pivot_table(name, levels):
     """
 
     # Auto height so the last row (e.g., S3) is fully visible without scrollbars
-    # Rough estimate: header ~54px + ~48px per row + small padding
     header_h = 54
     row_h = 48
     padding = 24
@@ -220,6 +294,8 @@ def run_pivot(granularity="D"):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
     st.subheader(f"📅 {label} Pivot Levels for {today}")
+
+    theme = get_theme()  # Read theme once per run
 
     for name, symbol in INSTRUMENTS.items():
         try:
@@ -239,10 +315,9 @@ def run_pivot(granularity="D"):
             st.markdown(ohlc_html, unsafe_allow_html=True)
             st.markdown("#### 📌 Pivot Levels")
 
-            # 🧱 Table with copy buttons
-            rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
-                    ("S1", s1), ("S2", s2), ("S3", s3)]
-            render_pivot_table(name, rows)
+            # 🧱 Table with copy buttons (theme-aware)
+            rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p), ("S1", s1), ("S2", s2), ("S3", s3)]
+            render_pivot_table(name, rows, theme=theme)
 
             st.markdown("---")
         except Exception as e:
