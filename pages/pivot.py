@@ -30,16 +30,19 @@ INSTRUMENTS = {
 def iso_midnight_utc(d):
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
-# 🔍 Latest previous completed candle (for current pivots)
+# 🔍 Latest previous completed candle (aligned to UTC for daily)
 def fetch_ohlc(instrument, granularity="D"):
-    params = {"granularity": granularity, "count": 2, "price": "M"}
     url = BASE_URL.format(instrument)
+    params = {"granularity": granularity, "price": "M", "count": 2}
+    if granularity == "D":
+        # Ensure daily candles are 00:00–24:00 UTC
+        params.update({"alignmentTimezone": "UTC", "dailyAlignment": 0})
     r = requests.get(url, headers=HEADERS, params=params, timeout=20)
     r.raise_for_status()
     candles = r.json().get("candles", [])
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
-    prev = candles[-2]  # last completed
+    prev = candles[-2]  # last completed candle
     date = prev["time"][:10]
     ohlc = prev["mid"]
     return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
@@ -47,18 +50,18 @@ def fetch_ohlc(instrument, granularity="D"):
 # 🗓️ Previous trading day helper (skip Saturday/Sunday)
 def previous_trading_day(d):
     d = d - timedelta(days=1)
-    while d.weekday() >= 5:  # 5=Saturday, 6=Sunday
-        d = d - timedelta(days=1)
+    while d.weekday() >= 5:  # 5=Sat, 6=Sun
+        d -= timedelta(days=1)
     return d
 
-# 🔎 Fetch exact daily candle for a UTC day (alignment: UTC midnight)
+# 🔎 Fetch exact daily candle for a UTC day (00:00–24:00 UTC)
 def fetch_daily_candle_by_date_utc(instrument, candle_date):
     url = BASE_URL.format(instrument)
     params = {
         "granularity": "D",
         "price": "M",
         "alignmentTimezone": "UTC",
-        "dailyAlignment": 0,  # align daily candles to 00:00 UTC
+        "dailyAlignment": 0,  # align to 00:00 UTC
         "from": iso_midnight_utc(candle_date),
         "to": iso_midnight_utc(candle_date + timedelta(days=1)),
     }
@@ -72,13 +75,12 @@ def fetch_daily_candle_by_date_utc(instrument, candle_date):
             return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), target
     raise ValueError(f"Daily candle for {instrument} on {target} (UTC) not found")
 
-# 🔁 Prior-period fetcher (simple, no timezone complexity)
+# 🔁 Prior-period fetcher (UTC-aligned daily; weekly unchanged)
 def fetch_prior_period_candle(instrument, granularity, selected_date):
     if granularity == "D":
-        # Always use the previous trading day (Fri for Mon/Sat/Sun; D-1 for Tue–Fri)
+        # Previous trading day (Fri for Mon/Sat/Sun; D-1 for Tue–Fri), UTC-aligned
         look = previous_trading_day(selected_date)
-        # In case of holidays/no data, step back until found (max 10 steps)
-        for _ in range(10):
+        for _ in range(10):  # fallback for holidays
             try:
                 return fetch_daily_candle_by_date_utc(instrument, look)
             except Exception:
@@ -87,12 +89,7 @@ def fetch_prior_period_candle(instrument, granularity, selected_date):
     else:
         # Weekly: last completed weekly candle before selected date (UTC)
         url = BASE_URL.format(instrument)
-        params = {
-            "granularity": "W",
-            "price": "M",
-            "to": iso_midnight_utc(selected_date),
-            "count": 1,
-        }
+        params = {"granularity": "W", "price": "M", "to": iso_midnight_utc(selected_date), "count": 1}
         r = requests.get(url, headers=HEADERS, params=params, timeout=20)
         r.raise_for_status()
         candles = r.json().get("candles", [])
@@ -111,15 +108,7 @@ def calculate_pivots(high, low, close):
     s1 = 2 * pivot - high
     s2 = pivot - (high - low)
     s3 = low - 2 * (high - pivot)
-    return (
-        round(r3, 4),
-        round(r2, 4),
-        round(r1, 4),
-        round(pivot, 4),
-        round(s1, 4),
-        round(s2, 4),
-        round(s3, 4),
-    )
+    return round(r3, 4), round(r2, 4), round(r1, 4), round(pivot, 4), round(s1, 4), round(s2, 4), round(s3, 4)
 
 # 🧾 Log to CSV
 def log_to_csv(name, date, o, h, l, c, pivots):
@@ -127,23 +116,7 @@ def log_to_csv(name, date, o, h, l, c, pivots):
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(
-                [
-                    "Name",
-                    "Date",
-                    "Open",
-                    "High",
-                    "Low",
-                    "Close",
-                    "R3",
-                    "R2",
-                    "R1",
-                    "Pivot",
-                    "S1",
-                    "S2",
-                    "S3",
-                ]
-            )
+            writer.writerow(["Name","Date","Open","High","Low","Close","R3","R2","R1","Pivot","S1","S2","S3"])
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
 def fmt4(v):
@@ -154,21 +127,16 @@ def fmt4(v):
 
 # 🧰 Native, theme-aware pivot list with per-level copy
 def render_pivot_levels_native(rows):
-    # Header
     h1, h2, h3 = st.columns([1.0, 1.6, 1.0])
     h1.markdown("**Level**")
     h2.markdown("**Value**")
     h3.markdown("**Copy**")
-
-    # Rows
     for lvl, val in rows:
         val_str = fmt4(val)
         c1, c2, c3 = st.columns([1.0, 1.6, 1.0])
         c1.markdown(f"**{lvl}**")
         c2.markdown(f"`{val_str}`")
         c3.code(val_str, language="text")
-
-    # Copy all (label + value) if needed
     with st.expander("Copy all levels"):
         all_text = "\n".join(f"{lvl}: {fmt4(val)}" for lvl, val in rows)
         st.code(all_text, language="text")
@@ -178,7 +146,7 @@ def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
     hdr_date = custom_date if custom_date else today
-    basis = "previous trading day" if granularity == "D" else "previous week"
+    basis = "previous trading day (UTC 00:00–24:00)" if granularity == "D" else "previous week"
     st.subheader(f"📅 {label} Pivot Levels for {hdr_date} — based on {basis}")
 
     for name, symbol in INSTRUMENTS.items():
@@ -192,9 +160,8 @@ def run_pivot(granularity="D", custom_date=None):
             log_to_csv(name, used_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
 
-            st.markdown(f"### 📊 {name} — candle used: {used_date}")
+            st.markdown(f"### 📊 {name} — candle used (UTC day): {used_date}")
 
-            # Native metrics
             cols = st.columns(4)
             cols[0].metric("Open", f"{o:.2f}")
             cols[1].metric("High", f"{h:.2f}")
@@ -202,15 +169,7 @@ def run_pivot(granularity="D", custom_date=None):
             cols[3].metric("Close", f"{c:.2f}", delta=f"{(c - o):+.2f}")
 
             st.markdown("#### 📌 Pivot Levels")
-            rows = [
-                ("R3", r3),
-                ("R2", r2),
-                ("R1", r1),
-                ("Pivot", p),
-                ("S1", s1),
-                ("S2", s2),
-                ("S3", s3),
-            ]
+            rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p), ("S1", s1), ("S2", s2), ("S3", s3)]
             render_pivot_levels_native(rows)
 
             st.divider()
