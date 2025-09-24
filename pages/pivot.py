@@ -1,4 +1,3 @@
-
 import streamlit as st
 from datetime import datetime, timezone
 import requests
@@ -92,44 +91,30 @@ def fmt4(v):
     except Exception:
         return str(v)
 
-# 🧰 Native, theme-aware UI with "copy per two pivot values"
-def render_pivot_pairs_native(level_values):
+# 🧰 Native, theme-aware pivot list with per-level copy
+def render_pivot_levels_native(rows):
     """
-    level_values: dict like {"R3": 123.4567, "R2": ...}
-    Shows pairs with one copy control per two values (via st.code).
+    rows: list of tuples [(level_label, value), ...]
+    Layout: Level | Value | Copy (each level has its own copy control)
     """
-    pairs = [("R3", "R2"), ("R1", "Pivot"), ("S1", "S2"), ("S3", None)]
+    # Header
+    h1, h2, h3 = st.columns([1.0, 1.6, 1.0])
+    h1.markdown("**Level**")
+    h2.markdown("**Value**")
+    h3.markdown("**Copy**")
 
-    # Header row
-    h1, h2, h3 = st.columns([1.0, 1.0, 1.2])
-    h1.markdown("**Left**")
-    h2.markdown("**Right**")
-    h3.markdown("**Copy Pair**")
+    # Rows
+    for lvl, val in rows:
+        val_str = fmt4(val)
+        c1, c2, c3 = st.columns([1.0, 1.6, 1.0])
+        c1.markdown(f"**{lvl}**")
+        c2.markdown(f"`{val_str}`")
+        # st.code has a native copy icon; copies just the numeric value
+        c3.code(val_str, language="text")
 
-    for left, right in pairs:
-        c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
-
-        # Left value
-        lv = level_values.get(left)
-        lv_str = fmt4(lv) if lv is not None else ""
-        c1.markdown(f"**{left}**: `{lv_str}`")
-
-        # Right value
-        if right is not None:
-            rv = level_values.get(right)
-            rv_str = fmt4(rv) if rv is not None else ""
-            c2.markdown(f"**{right}**: `{rv_str}`")
-            pair_text = f"{left}: {lv_str}\n{right}: {rv_str}"
-        else:
-            c2.write("")
-            pair_text = f"{left}: {lv_str}"
-
-        # Copy both with one native copy icon
-        c3.code(pair_text, language="text")
-
-    # Copy all at once
+    # Copy all (label + value) if needed
     with st.expander("Copy all levels"):
-        all_text = "\n".join(f"{k}: {fmt4(v)}" for k, v in level_values.items())
+        all_text = "\n".join(f"{lvl}: {fmt4(val)}" for lvl, val in rows)
         st.code(all_text, language="text")
 
 # 🚀 Run Pivot Calculation
@@ -156,16 +141,16 @@ def run_pivot(granularity="D"):
 
             st.markdown("#### 📌 Pivot Levels")
 
-            level_values = {
-                "R3": r3,
-                "R2": r2,
-                "R1": r1,
-                "Pivot": p,
-                "S1": s1,
-                "S2": s2,
-                "S3": s3,
-            }
-            render_pivot_pairs_native(level_values)
+            rows = [
+                ("R3", r3),
+                ("R2", r2),
+                ("R1", r1),
+                ("Pivot", p),
+                ("S1", s1),
+                ("S2", s2),
+                ("S3", s3),
+            ]
+            render_pivot_levels_native(rows)
 
             st.divider()
         except Exception as e:
