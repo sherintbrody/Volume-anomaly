@@ -159,7 +159,7 @@ def run_pivot(granularity="D", custom_date=None):
             log_to_csv(name, used_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
 
-            st.markdown(f"### 📊 {name} — candle used: {used_date}")
+            st.markdown(f"### 📊 {name} ")
 
             cols = st.columns(4)
             cols[0].metric("Open", f"{o:.2f}")
