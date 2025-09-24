@@ -62,11 +62,8 @@ def log_to_csv(name, date, o, h, l, c, pivots):
             writer.writerow(["Name", "Date", "Open", "High", "Low", "Close", "R3", "R2", "R1", "Pivot", "S1", "S2", "S3"])
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
-# 🧰 Render pivot table with fixed-layout copy buttons (auto-height so last row is visible)
+# 🧰 Render pivot table with theme-aware CSS
 def render_pivot_table(name, levels):
-    """
-    levels: list of tuples [(label, value), ...]
-    """
     table_id = f"tbl_{name}_{uuid4().hex}"
     rows_html = []
     for i, (lvl, val) in enumerate(levels):
@@ -93,20 +90,22 @@ def render_pivot_table(name, levels):
     #{table_id} table {{
         width: 100%;
         border-collapse: collapse;
-        table-layout: fixed; /* prevents column shift */
+        table-layout: fixed;
         margin-top: 6px;
+        color: var(--text-color);
     }}
     #{table_id} col.col-level {{ width: 20%; }}
     #{table_id} col.col-value {{ width: 55%; }}
     #{table_id} col.col-copy  {{ width: 25%; }}
 
     #{table_id} th, #{table_id} td {{
-        border-bottom: 1px solid rgba(0,0,0,0.08);
+        border-bottom: 1px solid rgba(128,128,128,0.2);
         padding: 10px 12px;
         box-sizing: border-box;
         vertical-align: middle;
+        color: var(--text-color);
     }}
-    #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
+    #{table_id} tr:nth-child(even) {{ background: var(--secondary-background-color); }}
     #{table_id} th {{
         text-align: left;
         font-weight: 700;
@@ -122,25 +121,23 @@ def render_pivot_table(name, levels):
         align-items: center;
         white-space: nowrap;
     }}
-    /* Fixed-width button to avoid any nudge when text changes */
     #{table_id} .copy-btn {{
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 96px; /* keep button width constant */
+        min-width: 96px;
         height: 32px;
         padding: 0 10px;
         border-radius: 6px;
-        background: #0ea5e9;
+        background: var(--primary-color);
         color: #fff;
-        border: 2px solid transparent; /* reserve space for focus border */
+        border: 2px solid transparent;
         cursor: pointer;
         font-weight: 600;
-        white-space: nowrap;
     }}
-    #{table_id} .copy-btn:hover {{ background: #0284c7; }}
+    #{table_id} .copy-btn:hover {{ filter: brightness(0.9); }}
     #{table_id} .copy-btn:focus-visible {{
-        border-color: #38bdf8; /* accessible focus without layout shift */
+        border-color: var(--primary-color);
         outline: none;
     }}
     #{table_id} .copy-btn.copied {{ background: #16a34a; }}
@@ -188,7 +185,6 @@ def render_pivot_table(name, levels):
             if (navigator.clipboard && window.isSecureContext) {{
               navigator.clipboard.writeText(val).then(setCopied).catch(setCopied);
             }} else {{
-              // Fallback for non-secure contexts
               const ta = document.createElement('textarea');
               ta.value = val;
               ta.style.position = 'fixed';
@@ -206,14 +202,12 @@ def render_pivot_table(name, levels):
     </script>
     """
 
-    # Auto height so the last row (e.g., S3) is fully visible without scrollbars
-    # Rough estimate: header ~54px + ~48px per row + small padding
     header_h = 54
     row_h = 48
     padding = 24
     height_px = header_h + row_h * len(levels) + padding
 
-    components.html(html, height=height_px, scrolling=False)
+    components.html(html, height=height_px, scrolling=False
 
 # 🚀 Run Pivot Calculation
 def run_pivot(granularity="D"):
