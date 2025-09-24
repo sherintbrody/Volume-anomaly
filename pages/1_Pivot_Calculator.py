@@ -79,13 +79,19 @@ def run_pivot(granularity="D"):
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
 
-            pivot_html = f"""
-            <div style='font-size:17px'>
-            R3: {r3:.2f} &nbsp;&nbsp; R2: {r2:.2f} &nbsp;&nbsp; R1: {r1:.2f} &nbsp;&nbsp; Pivot: {p:.2f}<br>
-            S1: {s1:.2f} &nbsp;&nbsp; S2: {s2:.2f} &nbsp;&nbsp; S3: {s3:.2f}
-            </div>
-            """
-            st.markdown(pivot_html, unsafe_allow_html=True)
+            st.markdown("#### 📌 Pivot Levels")
+            pivot_levels = {
+                "R3": r3,
+                "R2": r2,
+                "R1": r1,
+                "Pivot": p,
+                "S1": s1,
+                "S2": s2,
+                "S3": s3
+            }
+            for label, value in pivot_levels.items():
+                st.text_input(f"{label}", value=value, key=f"{label}_{name}")
+
             st.markdown("---")
         except Exception as e:
             st.error(f"{name}: Failed — {e}")
@@ -105,16 +111,12 @@ def view_logs():
             st.write(f"S1: {s1}  S2: {s2}  S3: {s3}")
             st.markdown("---")
 
-
-# 🧭 UI Controls
-st.title("📈 Pivot Point Calculator")
-
+# 🧭 Sidebar Controls
+st.sidebar.title("📈 Pivot Dashboard")
 action = st.sidebar.radio("Choose Action", ["Calculate Pivots", "View Logs"])
-
 if action == "Calculate Pivots":
-    timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"])
+    timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"], horizontal=True)
     granularity = "D" if timeframe == "Daily" else "W"
     run_pivot(granularity)
 else:
     view_logs()
-
