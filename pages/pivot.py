@@ -41,15 +41,14 @@ def fetch_ohlc(instrument, granularity="D"):
     ohlc = prev["mid"]
     return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
 
-# 🔎 Fetch OHLC for a custom date (daily exact date or weekly candle containing that date)
+# 🔎 Fetch OHLC for a specific date (daily exact date or weekly candle containing that date)
 def fetch_ohlc_for_date(instrument, granularity, target_date):
     url = BASE_URL.format(instrument)
 
     def iso_z(d):
-        # Convert a date to "YYYY-MM-DDT00:00:00Z"
         return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
-    # Build a time window around the target date to ensure the candle is included
+    # Build a window around the target date to ensure the candle is included
     if granularity == "D":
         frm = target_date - timedelta(days=1)
         to = target_date + timedelta(days=2)
@@ -70,7 +69,6 @@ def fetch_ohlc_for_date(instrument, granularity, target_date):
     if not candles:
         raise ValueError(f"No candles returned for {instrument} in selected window")
 
-    # Helper to parse ISO time safely (ignore fractional seconds)
     def parse_iso_date(iso_str):
         return datetime.strptime(iso_str[:19], "%Y-%m-%dT%H:%M:%S").date()
 
@@ -177,8 +175,11 @@ def run_pivot(granularity="D", custom_date=None):
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                o, h, l, c, candle_date = fetch_ohlc_for_date(symbol, granularity, custom_date)
+                # Use the previous period's candle relative to the selected date
+                prev_date = custom_date - timedelta(days=1 if granularity == "D" else 7)
+                o, h, l, c, candle_date = fetch_ohlc_for_date(symbol, granularity, prev_date)
             else:
+                # Latest previous completed candle (default behavior)
                 o, h, l, c, candle_date = fetch_ohlc(symbol, granularity)
 
             pivots = calculate_pivots(h, l, c)
