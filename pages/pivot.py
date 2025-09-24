@@ -42,7 +42,6 @@ def _request_candles(instrument, params):
 
 def _extract_ohlc(candle):
     ohlc = candle[OHLC_KEY]
-    # FIXED typo here: ohlhc -> ohlc
     return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"])
 
 # 🔍 Last completed candle (same method as your working script)
@@ -58,18 +57,13 @@ def fetch_last_completed_candle(instrument, granularity="D"):
 # 🔁 Prior completed candle strictly before a selected date
 def fetch_prior_candle_before_date(instrument, granularity, selected_date):
     if granularity == "D":
-        params = {
-            "granularity": "D",
-            "price": PRICE_TYPE,
-            "to": iso_midnight_utc(selected_date),
-            "count": 1,
-        }
+        params = {"granularity": "D", "price": PRICE_TYPE, "to": iso_midnight_utc(selected_date), "count": 1}
         candles = _request_candles(instrument, params)
         if candles:
             c = candles[-1]
             o, h, l, c_close = _extract_ohlc(c)
             return o, h, l, c_close, c["time"][:10]
-        # Fallback if boundary yields nothing (rare)
+        # Fallback if boundary yields nothing
         t = selected_date - timedelta(days=1)
         for _ in range(9):
             params["to"] = iso_midnight_utc(t)
@@ -83,11 +77,21 @@ def fetch_prior_candle_before_date(instrument, granularity, selected_date):
     else:
         params = {"granularity": "W", "price": PRICE_TYPE, "to": iso_midnight_utc(selected_date), "count": 1}
         candles = _request_candles(instrument, params)
-        if not candles:
-            raise ValueError(f"No prior weekly candle before {selected_date} for {instrument}")
-        c = candles[-1]
-        o, h, l, c_close = _extract_ohlc(c)
-        return o, h, l, c_close, c["time"][:10]
+        if candles:
+            c = candles[-1]
+            o, h, l, c_close = _extract_ohlc(c)
+            return o, h, l, c_close, c["time"][:10]
+        # Fallback step back by weeks if needed
+        t = selected_date - timedelta(days=7)
+        for _ in range(5):
+            params["to"] = iso_midnight_utc(t)
+            candles = _request_candles(instrument, params)
+            if candles:
+                c = candles[-1]
+                o, h, l, c_close = _extract_ohlc(c)
+                return o, h, l, c_close, c["time"][:10]
+            t -= timedelta(days=7)
+        raise ValueError(f"No prior weekly candle found before {selected_date} for {instrument}")
 
 # 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
@@ -142,8 +146,11 @@ def run_pivot(granularity="D", custom_date=None):
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                # Subtract one day here to avoid 'to' boundary including the same day's candle
-                query_date = custom_date - timedelta(days=1) if granularity == "D" else custom_date
+                # Force prior period explicitly to avoid 'to' boundary including same period
+                if granularity == "D":
+                    query_date = custom_date - timedelta(days=1)
+                else:
+                    query_date = custom_date - timedelta(days=7)
                 o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, query_date)
             else:
                 o, h, l, c, used_date = fetch_last_completed_candle(symbol, granularity)
