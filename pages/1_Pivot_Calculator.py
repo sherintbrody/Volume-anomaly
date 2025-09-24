@@ -3,6 +3,8 @@ from datetime import datetime, timezone, timedelta
 import requests
 import csv
 import os
+from uuid import uuid4
+import streamlit.components.v1 as components
 
 # 🧭 Page Setup
 st.set_page_config(page_title="Pivot Calculator", page_icon="📈")
@@ -31,6 +33,7 @@ def fetch_ohlc(instrument, granularity="D"):
     params = {"granularity": granularity, "count": 2, "price": "M"}
     url = BASE_URL.format(instrument)
     r = requests.get(url, headers=HEADERS, params=params)
+    r.raise_for_status()
     candles = r.json().get('candles', [])
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
@@ -56,6 +59,91 @@ def log_to_csv(name, date, o, h, l, c, pivots):
         writer = csv.writer(f)
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
+# 🧰 Render pivot table with copy buttons
+def render_pivot_table(name, levels):
+    """
+    levels: list of tuples [(label, value), ...]
+    """
+    table_id = f"tbl_{name}_{uuid4().hex}"
+    rows_html = []
+    for i, (lvl, val) in enumerate(levels):
+        # Ensure string with 4 decimals
+        val_str = f"{float(val):.4f}" if isinstance(val, (int, float)) or str(val).replace('.', '', 1).isdigit() else str(val)
+        btn_id = f"btn_{i}_{uuid4().hex}"
+        msg_id = f"msg_{i}_{uuid4().hex}"
+        rows_html.append(f"""
+            <tr>
+              <td style="padding:8px 12px; font-weight:600">{lvl}</td>
+              <td style="padding:8px 12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace">{val_str}</td>
+              <td style="padding:8px 12px">
+                <button id="{btn_id}" class="copy-btn" data-value="{val_str}">Copy</button>
+                <span id="{msg_id}" class="copy-msg" style="margin-left:8px; color:#16a34a; font-size:12px;"></span>
+              </td>
+            </tr>
+        """)
+    rows_html = "\n".join(rows_html)
+
+    html = f"""
+    <style>
+    #{table_id} .copy-btn {{
+        background: #0ea5e9;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+    }}
+    #{table_id} .copy-btn:hover {{ background: #0284c7; }}
+    #{table_id} table {{
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 6px;
+    }}
+    #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
+    #{table_id} th, #{table_id} td {{
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+    }}
+    #{table_id} th {{
+        text-align: left;
+        padding: 8px 12px;
+        font-weight: 700;
+        font-size: 14px;
+    }}
+    </style>
+    <div id="{table_id}">
+      <table>
+        <thead>
+          <tr>
+            <th>Level</th>
+            <th>Value</th>
+            <th>Copy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows_html}
+        </tbody>
+      </table>
+    </div>
+    <script>
+      const root = document.getElementById("{table_id}");
+      const buttons = Array.from(root.querySelectorAll('.copy-btn'));
+      buttons.forEach((btn) => {{
+          btn.addEventListener('click', () => {{
+              const val = btn.getAttribute('data-value');
+              navigator.clipboard.writeText(val).then(() => {{
+                  const msg = btn.nextElementSibling;
+                  if (msg) {{
+                      msg.textContent = 'Copied!';
+                      setTimeout(() => {{ msg.textContent = ''; }}, 1200);
+                  }}
+              }});
+          }});
+      }});
+    </script>
+    """
+    # Height: header + 7 rows approx 40px each
+    components.html(html, height=320, scrolling=False)
+
 # 🚀 Run Pivot Calculation
 def run_pivot(granularity="D"):
     today = datetime.now(timezone.utc).date()
@@ -80,14 +168,10 @@ def run_pivot(granularity="D"):
             st.markdown(ohlc_html, unsafe_allow_html=True)
             st.markdown("#### 📌 Pivot Levels")
 
-            # 🧱 Compact Row-wise Layout
-            for label, value in [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
-                                 ("S1", s1), ("S2", s2), ("S3", s3)]:
-                col1, col2 = st.columns([0.3, 0.7])
-                with col1:
-                    st.markdown(f"<span style='font-size:14px'><b>{label}</b></span>", unsafe_allow_html=True)
-                with col2:
-                    st.text_input("", value=value, key=f"{label}_{name}")
+            # 🧱 Table with copy buttons
+            rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
+                    ("S1", s1), ("S2", s2), ("S3", s3)]
+            render_pivot_table(name, rows)
 
             st.markdown("---")
         except Exception as e:
