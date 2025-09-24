@@ -78,7 +78,7 @@ def run_pivot(granularity="D"):
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
-
+            st.markdown(f"    ")
             
 
             # 📐 Compact Two-Column Layout
