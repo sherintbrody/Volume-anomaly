@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 import csv
 import os
@@ -27,7 +27,7 @@ INSTRUMENTS = {
     "US30": "US30_USD",
 }
 
-# 🔍 Fetch OHLC (daily or weekly)
+# 🔍 Fetch OHLC (previous candle for daily/weekly)
 def fetch_ohlc(instrument, granularity="D"):
     params = {"granularity": granularity, "count": 2, "price": "M"}
     url = BASE_URL.format(instrument)
@@ -40,6 +40,56 @@ def fetch_ohlc(instrument, granularity="D"):
     date = prev["time"][:10]
     ohlc = prev["mid"]
     return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
+
+# 🔎 Fetch OHLC for a custom date (daily exact date or weekly candle containing that date)
+def fetch_ohlc_for_date(instrument, granularity, target_date):
+    url = BASE_URL.format(instrument)
+
+    def iso_z(d):
+        # Convert a date to "YYYY-MM-DDT00:00:00Z"
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
+    # Build a time window around the target date to ensure the candle is included
+    if granularity == "D":
+        frm = target_date - timedelta(days=1)
+        to = target_date + timedelta(days=2)
+    else:  # "W"
+        frm = target_date - timedelta(days=21)
+        to = target_date + timedelta(days=7)
+
+    params = {
+        "granularity": granularity,
+        "price": "M",
+        "from": iso_z(frm),
+        "to": iso_z(to),
+    }
+    r = requests.get(url, headers=HEADERS, params=params, timeout=20)
+    r.raise_for_status()
+    candles = r.json().get("candles", [])
+
+    if not candles:
+        raise ValueError(f"No candles returned for {instrument} in selected window")
+
+    # Helper to parse ISO time safely (ignore fractional seconds)
+    def parse_iso_date(iso_str):
+        return datetime.strptime(iso_str[:19], "%Y-%m-%dT%H:%M:%S").date()
+
+    if granularity == "D":
+        target_str = target_date.strftime("%Y-%m-%d")
+        for c in candles:
+            if c["time"][:10] == target_str:
+                ohlc = c["mid"]
+                return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
+        raise ValueError(f"Daily candle for {target_str} not found (instrument {instrument})")
+    else:
+        # Find the weekly candle that contains target_date
+        for c in candles:
+            start = parse_iso_date(c["time"])
+            end = start + timedelta(days=7)
+            if start <= target_date < end:
+                ohlc = c["mid"]
+                return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
+        raise ValueError(f"No weekly candle containing {target_date} found (instrument {instrument})")
 
 # 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
@@ -118,14 +168,19 @@ def render_pivot_levels_native(rows):
         st.code(all_text, language="text")
 
 # 🚀 Run Pivot Calculation
-def run_pivot(granularity="D"):
+def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
-    st.subheader(f"📅 {label} Pivot Levels for {today}")
+    hdr_date = custom_date if custom_date else today
+    st.subheader(f"📅 {label} Pivot Levels for {hdr_date}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
-            o, h, l, c, candle_date = fetch_ohlc(symbol, granularity)
+            if custom_date:
+                o, h, l, c, candle_date = fetch_ohlc_for_date(symbol, granularity, custom_date)
+            else:
+                o, h, l, c, candle_date = fetch_ohlc(symbol, granularity)
+
             pivots = calculate_pivots(h, l, c)
             log_to_csv(name, candle_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
@@ -173,6 +228,12 @@ action = st.sidebar.radio("Choose Action", ["Calculate Pivots", "View Logs"])
 if action == "Calculate Pivots":
     timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"], horizontal=True)
     granularity = "D" if timeframe == "Daily" else "W"
-    run_pivot(granularity)
+
+    use_custom = st.sidebar.toggle("Use custom date", value=False)
+    custom_date = None
+    if use_custom:
+        custom_date = st.sidebar.date_input("Select date", value=datetime.now(timezone.utc).date())
+
+    run_pivot(granularity, custom_date=custom_date if use_custom else None)
 else:
     view_logs()
