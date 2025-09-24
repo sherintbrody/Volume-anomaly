@@ -79,7 +79,7 @@ def run_pivot(granularity="D"):
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
 
-            st.markdown("#### 📌 Pivot Levels")
+            
 
             # 📐 Compact Two-Column Layout
             left_col, right_col = st.columns(2)
