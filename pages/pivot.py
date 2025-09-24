@@ -27,8 +27,8 @@ INSTRUMENTS = {
     "US30": "US30_USD",
 }
 
-# Use the same price source as your working script
-PRICE_TYPE = "M"  # Mid
+# Use Mid prices (matches your reference script)
+PRICE_TYPE = "M"  # "M"=mid, "B"=bid, "A"=ask
 OHLC_KEY = {"B": "bid", "M": "mid", "A": "ask"}[PRICE_TYPE]
 
 def iso_midnight_utc(d):
@@ -54,13 +54,6 @@ def fetch_last_completed_candle(instrument, granularity="D"):
     o, h, l, c_close = _extract_ohlc(c)
     return o, h, l, c_close, c["time"][:10]
 
-# 🗓️ Previous trading day helper (skip Sat/Sun)
-def previous_trading_day(d):
-    d = d - timedelta(days=1)
-    while d.weekday() >= 5:  # 5=Sat, 6=Sun
-        d -= timedelta(days=1)
-    return d
-
 # 🔎 Exact daily candle for a UTC date using OANDA D candles (00:00–23:59:59 UTC)
 def fetch_daily_candle_by_date_utc(instrument, candle_date):
     params = {
@@ -77,22 +70,34 @@ def fetch_daily_candle_by_date_utc(instrument, candle_date):
             return o, h, l, c_close, target
     raise ValueError(f"Daily candle for {instrument} on {target} (UTC) not found")
 
-# 🔁 Prior completed candle strictly before a selected date
-# Daily: force previous trading day (Fri for Mon; Mon for Tue; ... Thu for Fri)
-# Weekly: last completed W candle strictly before selected date
+# 🔁 Prior completed candle strictly before a selected date (NO extra subtraction here)
+# - Daily: to=selected_date 00:00Z, count=1 -> last completed daily candle strictly before that (Fri for Mon; Mon for Tue; ...)
+# - Weekly: to=selected_date 00:00Z, count=1 -> last completed weekly candle strictly before that
 def fetch_prior_candle_before_date(instrument, granularity, selected_date):
     if granularity == "D":
-        # Always resolve to the previous trading day explicitly
-        look = previous_trading_day(selected_date)
-        # In case of holidays/no data, keep stepping back to prior trading days
-        for _ in range(10):
-            try:
-                return fetch_daily_candle_by_date_utc(instrument, look)
-            except Exception:
-                look = previous_trading_day(look)
-        raise ValueError(f"Could not find a prior daily candle before {selected_date}")
+        params = {
+            "granularity": "D",
+            "price": PRICE_TYPE,
+            "to": iso_midnight_utc(selected_date),
+            "count": 1,
+        }
+        candles = _request_candles(instrument, params)
+        if candles:
+            c = candles[-1]
+            o, h, l, c_close = _extract_ohlc(c)
+            return o, h, l, c_close, c["time"][:10]
+        # Fallback: step back a day if the 'to' boundary returns empty (rare)
+        t = selected_date - timedelta(days=1)
+        for _ in range(9):
+            params["to"] = iso_midnight_utc(t)
+            candles = _request_candles(instrument, params)
+            if candles:
+                c = candles[-1]
+                o, h, l, c_close = _extract_ohlc(c)
+                return o, h, l, c_close, c["time"][:10]
+            t -= timedelta(days=1)
+        raise ValueError(f"No prior daily candle found before {selected_date} for {instrument}")
     else:
-        # Weekly: use last completed candle before selected_date
         params = {"granularity": "W", "price": PRICE_TYPE, "to": iso_midnight_utc(selected_date), "count": 1}
         candles = _request_candles(instrument, params)
         if not candles:
@@ -147,24 +152,22 @@ def render_pivot_levels_native(rows):
 def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
-    pivot_date = custom_date if custom_date else today  # <-- pivot date (selected date)
+    pivot_date = custom_date if custom_date else today  # pivot date = selected date
     basis = "previous trading day (UTC D candle)" if granularity == "D" else "previous week (W candle)"
     st.subheader(f"📅 {label} Pivot Levels for {pivot_date} — based on {basis}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                # Fetch OHLC of the previous trading day/week relative to the pivot_date
+                # Fetch the last completed candle strictly BEFORE the pivot_date
                 o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, pivot_date)
             else:
                 o, h, l, c, used_date = fetch_last_completed_candle(symbol, granularity)
 
             pivots = calculate_pivots(h, l, c)
-            # Log using the candle date used for pivots
             log_to_csv(name, used_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
 
-            # Show both: pivot date (header) and the candle used (per instrument)
             st.markdown(f"### 📊 {name} — candle used: {used_date}")
 
             cols = st.columns(4)
