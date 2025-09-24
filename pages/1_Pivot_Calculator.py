@@ -78,16 +78,16 @@ def run_pivot(granularity="D"):
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
-            
+            st.markdown("#### 📌 Pivot Levels")
 
-            # 🧱 Compact Row-wise Layout
+            # 🧱 Compact Row-wise Layout with Copy Icons
             for label, value in [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
                                  ("S1", s1), ("S2", s2), ("S3", s3)]:
                 col1, col2 = st.columns([0.3, 0.7])
                 with col1:
                     st.markdown(f"<span style='font-size:14px'><b>{label}</b></span>", unsafe_allow_html=True)
                 with col2:
-                    st.text_input("", value=value, key=f"{label}_{name}")
+                    st.text_input(label, value=value, key=f"{label}_{name}")
 
             st.markdown("---")
         except Exception as e:
