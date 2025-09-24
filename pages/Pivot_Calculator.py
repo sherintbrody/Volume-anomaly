@@ -7,12 +7,17 @@ import os
 # 🧭 Page Setup
 st.set_page_config(page_title="Pivot Calculator", page_icon="📈")
 
-# 🔐 OANDA API Token
-API_KEY = st.secrets["API_KEY"]
-ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
-BASE_URL = "https://api-fxpractice.oanda.com/v3"
-LOG_FILE = "pivot_log.csv"
+# 🔐 OANDA Credentials from Secrets
+try:
+    API_KEY = st.secrets["API_KEY"]
+    ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+except Exception:
+    st.error("🔐 API credentials not found in secrets. Please configure `API_KEY` and `ACCOUNT_ID`.")
+    st.stop()
 
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+BASE_URL = f"https://api-fxpractice.oanda.com/v3/instruments/{{}}/candles"
+LOG_FILE = "pivot_log.csv"
 # 📈 Instruments
 INSTRUMENTS = {
     "GOLD": "XAU_USD",
