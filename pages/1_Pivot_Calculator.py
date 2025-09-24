@@ -48,7 +48,7 @@ def calculate_pivots(high, low, close):
     s1 = 2 * pivot - high
     s2 = pivot - (high - low)
     s3 = low - 2 * (high - pivot)
-    return round(r3, 2), round(r2, 2), round(r1, 2), round(pivot, 2), round(s1, 2), round(s2, 2), round(s3, 2)
+    return round(r3, 4), round(r2, 4), round(r1, 4), round(pivot, 4), round(s1, 4), round(s2, 4), round(s3, 4)
 
 # 🧾 Log to CSV
 def log_to_csv(name, date, o, h, l, c, pivots):
@@ -79,8 +79,9 @@ def run_pivot(granularity="D"):
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
 
-            # 📋 Pivot Table
-            pivot_table = {
+            st.markdown("#### 📌 Pivot Levels")
+
+            pivot_levels = {
                 "R3": r3,
                 "R2": r2,
                 "R1": r1,
@@ -89,13 +90,14 @@ def run_pivot(granularity="D"):
                 "S2": s2,
                 "S3": s3
             }
-            st.markdown("#### 📌 Pivot Levels")
-            st.table(pivot_table)
 
-            # 📎 Copy All Levels
-            pivot_text = "\n".join([f"{k}: {v}" for k, v in pivot_table.items()])
-            st.text_area("Copy Pivot Levels", value=pivot_text, height=120, key=f"copy_{name}")
-            st.button(f"📋 Copy {name} Levels", key=f"btn_{name}")
+            # 📐 Compact Table with Copy Buttons
+            for label, value in pivot_levels.items():
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.markdown(f"**{label}**")
+                with col2:
+                    st.text_input("", value=value, key=f"{label}_{name}")
 
             st.markdown("---")
         except Exception as e:
