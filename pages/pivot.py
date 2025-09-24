@@ -191,4 +191,15 @@ def view_logs():
 # 🧭 Sidebar Controls
 st.sidebar.title("📈 Pivot Dashboard")
 action = st.sidebar.radio("Choose Action", ["Calculate Pivots", "View Logs"])
-if
+if action == "Calculate Pivots":
+    timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"], horizontal=True)
+    granularity = "D" if timeframe == "Daily" else "W"
+    use_custom = st.sidebar.toggle("Use custom date", value=False)
+    custom_date = None
+    if use_custom:
+        custom_date = st.sidebar.date_input("Select date", value=datetime.now(timezone.utc).date())
+
+    run_pivot(granularity, custom_date=custom_date if use_custom else None)
+else:
+    view_logs()
+        
