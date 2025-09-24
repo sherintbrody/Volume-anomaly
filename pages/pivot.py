@@ -191,4 +191,3 @@ if action == "Calculate Pivots":
     run_pivot(granularity)
 else:
     view_logs()
-```
