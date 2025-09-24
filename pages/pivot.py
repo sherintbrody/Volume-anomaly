@@ -1,6 +1,4 @@
-Here’s a fully native Streamlit script (no iframes/JS) that keeps a “copy per two pivot values” control. Each pair is shown side-by-side with a single st.code block that includes a copy icon, which copies both values at once and inherits the theme automatically.
 
-```python
 import streamlit as st
 from datetime import datetime, timezone
 import requests
