@@ -29,7 +29,7 @@ INSTRUMENTS = {
 
 # Use OANDA's Bid prices to match TradingView OANDA charts (Open/Close often differ on Mid).
 # Change to "M" (mid) or "A" (ask) if you want a different source.
-PRICE_TYPE = "B"
+PRICE_TYPE = "M"
 OHLC_KEY = {"B": "bid", "M": "mid", "A": "ask"}[PRICE_TYPE]
 
 def iso_midnight_utc(d):
