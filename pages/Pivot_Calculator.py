@@ -65,7 +65,7 @@ def run_pivot():
             pivots = calculate_pivots(h, l, c)
             log_to_csv(name, candle_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
-            st.markdown(f"### 📊 {name} ({symbol}) — Candle Date: {candle_date}")
+            st.markdown(f"### 📊 {name} ({symbol})")
             st.write(f"Open: {o:.2f}  High: {h:.2f}  Low: {l:.2f}  Close: {c:.2f}")
             st.write(f"R3: {r3:.2f}  R2: {r2:.2f}  R1: {r1:.2f}  Pivot: {p:.2f}")
             st.write(f"S1: {s1:.2f}  S2: {s2:.2f}  S3: {s3:.2f}")
