@@ -65,7 +65,7 @@ ALERT_STATE_FILE = "last_alert_state.json"
 ALERT_DATE_FILE = "last_alert_date.txt"
 
 # How many candles to display in the table
-DISPLAY_ROWS = 10
+DISPLAY_ROWS = 13  # <- changed from 10 to 13
 
 # ====== ALERT MEMORY ======
 def load_alerted_candles():
@@ -178,7 +178,7 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     to_time = min(to_time, now_utc)
 
     params = {
-        "granularity": granularity,  # M15 by default; keep logic same
+        "granularity": granularity,
         "price": "M",
         "from": from_time.isoformat(),
         "to": to_time.isoformat()
@@ -209,7 +209,7 @@ def compute_bucket_averages(code, bucket_size_minutes):
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
 
-    for i in range(21):  # 21-day lookback
+    for i in range(21):
         day_ist = today_ist - timedelta(days=i)
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
@@ -249,7 +249,7 @@ def get_spike_bar(multiplier):
 def process_instrument(name, code, bucket_size_minutes, alerted_candles):
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes)
     now_utc = datetime.now(UTC)
-    from_time = now_utc - timedelta(minutes=15 * 30)  # last 30x 15-min candles fetched
+    from_time = now_utc - timedelta(minutes=15 * 30)  # fetch enough history
     candles = fetch_candles(code, from_time, now_utc, granularity="M15")
     if not candles:
         return [], [], {}
@@ -257,7 +257,6 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
     rows = []
     spikes_last_two = []
     last_two_candles = candles[-2:] if len(candles) >= 2 else candles
-
     last_summary = {}
 
     for c in candles:
@@ -292,7 +291,6 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             sentiment
         ])
 
-        # Summary from the last candle (overwrites until final)
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
             "bucket": bucket,
@@ -304,7 +302,6 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             "sentiment": sentiment
         }
 
-        # Collect spikes in the last two candles for alerting
         if c in last_two_candles and over:
             candle_id = f"{name}_{c['time']}_{round(float(c['mid']['o']), 2)}"
             if candle_id not in alerted_candles:
@@ -319,7 +316,6 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
 def render_card(name, rows, bucket_minutes, summary):
     st.markdown(f"### {name}", help="Instrument")
 
-    # Top chips
     if summary:
         chips = [
             f'<span class="badge neutral">Bucket: {bucket_minutes}m</span>',
@@ -328,21 +324,18 @@ def render_card(name, rows, bucket_minutes, summary):
         ]
         st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
 
-        # Metrics
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Volume", f"{summary['volume']:,}")
         c2.metric("Bucket Avg", f"{summary['avg']:.0f}")
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
 
-    # Dataframe
     columns = [
         "Time (IST)",
         f"Time Bucket ({bucket_minutes} min)",
         "Open", "High", "Low", "Close",
         "Volume", "Spike Δ", "Strength", "Sentiment"
     ]
-    # Show only the latest DISPLAY_ROWS candles
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
 
@@ -363,7 +356,6 @@ def render_card(name, rows, bucket_minutes, summary):
         },
     )
 
-    # Export CSV
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 Export to CSV",
@@ -385,7 +377,6 @@ def run_volume_check():
 
     bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
 
-    # Header + context chips
     top_l, top_r = st.columns([3, 2])
     with top_l:
         st.subheader("📊 Volume Anomaly Detector")
@@ -404,7 +395,6 @@ def run_volume_check():
     with top_r:
         st.info("Tip: Turn on Telegram alerts in the sidebar to receive spike notifications.")
 
-    # Render instruments in a responsive grid (2-up)
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
     col_idx = 0
@@ -424,11 +414,9 @@ def run_volume_check():
 
         col_idx = (col_idx + 1) % len(cols)
 
-        # Gather alerts for last-two-candle spikes
         if spikes:
             all_spike_msgs.extend(spikes)
 
-    # Alerts handling
     if all_spike_msgs:
         formatted_msgs = []
         for raw in all_spike_msgs:
