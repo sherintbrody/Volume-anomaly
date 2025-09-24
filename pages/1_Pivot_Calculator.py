@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 import csv
 import os
@@ -18,6 +18,7 @@ except Exception:
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 BASE_URL = f"https://api-fxpractice.oanda.com/v3/instruments/{{}}/candles"
 LOG_FILE = "pivot_log.csv"
+
 # 📈 Instruments
 INSTRUMENTS = {
     "GOLD": "XAU_USD",
@@ -25,17 +26,17 @@ INSTRUMENTS = {
     "US30": "US30_USD"
 }
 
-# 🔍 Fetch OHLC
-def fetch_yesterdays_ohlc(instrument):
-    params = {"granularity": "D", "count": 2, "price": "M"}
+# 🔍 Fetch OHLC (daily or weekly)
+def fetch_ohlc(instrument, granularity="D"):
+    params = {"granularity": granularity, "count": 2, "price": "M"}
     url = BASE_URL.format(instrument)
     r = requests.get(url, headers=HEADERS, params=params)
     candles = r.json().get('candles', [])
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
-    yesterday = candles[-2]
-    date = yesterday['time'][:10]
-    ohlc = yesterday['mid']
+    prev = candles[-2]
+    date = prev['time'][:10]
+    ohlc = prev['mid']
     return float(ohlc['o']), float(ohlc['h']), float(ohlc['l']), float(ohlc['c']), date
 
 # 📊 Pivot Logic
@@ -56,15 +57,14 @@ def log_to_csv(name, date, o, h, l, c, pivots):
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
 # 🚀 Run Pivot Calculation
-from datetime import datetime, timezone, timedelta
-
-def run_pivot():
+def run_pivot(granularity="D"):
     today = datetime.now(timezone.utc).date()
-    st.subheader(f"📅 Pivot Levels for {today}")
+    label = "Daily" if granularity == "D" else "Weekly"
+    st.subheader(f"📅 {label} Pivot Levels for {today}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
-            o, h, l, c, _ = fetch_yesterdays_ohlc(symbol)
+            o, h, l, c, _ = fetch_ohlc(symbol, granularity)
             pivots = calculate_pivots(h, l, c)
             log_to_csv(name, today - timedelta(days=1), o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
@@ -86,12 +86,9 @@ def run_pivot():
             </div>
             """
             st.markdown(pivot_html, unsafe_allow_html=True)
-
             st.markdown("---")
         except Exception as e:
             st.error(f"{name}: Failed — {e}")
-
-
 
 # 📂 View Logs
 def view_logs():
@@ -112,7 +109,10 @@ def view_logs():
 st.title("📈 Pivot Point Calculator")
 
 action = st.radio("Choose Action", ["Calculate Pivots", "View Logs"])
+
 if action == "Calculate Pivots":
-    run_pivot()
+    timeframe = st.radio("Select Timeframe", ["Daily", "Weekly"])
+    granularity = "D" if timeframe == "Daily" else "W"
+    run_pivot(granularity)
 else:
     view_logs()
