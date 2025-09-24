@@ -166,7 +166,7 @@ def run_pivot(granularity="D"):
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
-            st.markdown("#### 📌 Pivot Levels")
+            st.markdown(" ")
 
             # 🧱 Table with copy buttons
             rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
