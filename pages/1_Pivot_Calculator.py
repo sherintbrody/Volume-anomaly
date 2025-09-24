@@ -79,8 +79,8 @@ def run_pivot(granularity="D"):
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
 
-            st.markdown("#### 📌 Pivot Levels")
-            pivot_levels = {
+            # 📋 Pivot Table
+            pivot_table = {
                 "R3": r3,
                 "R2": r2,
                 "R1": r1,
@@ -89,8 +89,13 @@ def run_pivot(granularity="D"):
                 "S2": s2,
                 "S3": s3
             }
-            for label, value in pivot_levels.items():
-                st.text_input(f"{label}", value=value, key=f"{label}_{name}")
+            st.markdown("#### 📌 Pivot Levels")
+            st.table(pivot_table)
+
+            # 📎 Copy All Levels
+            pivot_text = "\n".join([f"{k}: {v}" for k, v in pivot_table.items()])
+            st.text_area("Copy Pivot Levels", value=pivot_text, height=120, key=f"copy_{name}")
+            st.button(f"📋 Copy {name} Levels", key=f"btn_{name}")
 
             st.markdown("---")
         except Exception as e:
