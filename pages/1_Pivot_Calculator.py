@@ -81,23 +81,19 @@ def run_pivot(granularity="D"):
 
             st.markdown("#### 📌 Pivot Levels")
 
-            pivot_levels = {
-                "R3": r3,
-                "R2": r2,
-                "R1": r1,
-                "Pivot": p,
-                "S1": s1,
-                "S2": s2,
-                "S3": s3
-            }
+            # 📐 Compact Two-Column Layout
+            left_col, right_col = st.columns(2)
 
-            # 📐 Compact Table with Copy Buttons
-            for label, value in pivot_levels.items():
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.markdown(f"**{label}**")
-                with col2:
-                    st.text_input("", value=value, key=f"{label}_{name}")
+            with left_col:
+                st.text_input("R3", value=r3, key=f"R3_{name}")
+                st.text_input("R2", value=r2, key=f"R2_{name}")
+                st.text_input("R1", value=r1, key=f"R1_{name}")
+                st.text_input("Pivot", value=p, key=f"Pivot_{name}")
+
+            with right_col:
+                st.text_input("S1", value=s1, key=f"S1_{name}")
+                st.text_input("S2", value=s2, key=f"S2_{name}")
+                st.text_input("S3", value=s3, key=f"S3_{name}")
 
             st.markdown("---")
         except Exception as e:
