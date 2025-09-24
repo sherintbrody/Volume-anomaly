@@ -88,65 +88,63 @@ def render_pivot_table(name, levels):
         """)
     rows_html = "\n".join(rows_html)
 
-    
-    
     html = f"""
-<style>
-#{table_id} table {{
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    margin-top: 6px;
-    color: var(--text-color); /* text adapts to theme */
-}}
-#{table_id} th, #{table_id} td {{
-    border-bottom: 1px solid rgba(128,128,128,0.2);
-    padding: 10px 12px;
-    box-sizing: border-box;
-    vertical-align: middle;
-    color: var(--text-color); /* text adapts */
-}}
-#{table_id} tr:nth-child(even) {{
-    background: var(--secondary-background-color); /* theme-aware row shading */
-}}
-#{table_id} th {{
-    text-align: left;
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--text-color);
-}}
-#{table_id} .lvl-td {{
-    font-weight: 600;
-    white-space: nowrap;
-}}
-#{table_id} .val-td {{
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    white-space: nowrap;
-}}
-#{table_id} .copy-btn {{
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 96px;
-    height: 32px;
-    padding: 0 10px;
-    border-radius: 6px;
-    background: var(--primary-color); /* theme primary */
-    color: #fff;
-    border: 2px solid transparent;
-    cursor: pointer;
-    font-weight: 600;
-}}
-#{table_id} .copy-btn:hover {{
-    filter: brightness(0.9);
-}}
-#{table_id} .copy-btn.copied {{
-    background: #16a34a;
-}}
-</style>
-...
-"""
+    <style>
+    #{table_id} table {{
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed; /* prevents column shift */
+        margin-top: 6px;
+    }}
+    #{table_id} col.col-level {{ width: 20%; }}
+    #{table_id} col.col-value {{ width: 55%; }}
+    #{table_id} col.col-copy  {{ width: 25%; }}
 
+    #{table_id} th, #{table_id} td {{
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+        padding: 10px 12px;
+        box-sizing: border-box;
+        vertical-align: middle;
+    }}
+    #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
+    #{table_id} th {{
+        text-align: left;
+        font-weight: 700;
+        font-size: 14px;
+    }}
+    #{table_id} .lvl-td {{ font-weight: 600; white-space: nowrap; }}
+    #{table_id} .val-td {{
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: nowrap;
+    }}
+    #{table_id} .copy-td {{
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+    }}
+    /* Fixed-width button to avoid any nudge when text changes */
+    #{table_id} .copy-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 96px; /* keep button width constant */
+        height: 32px;
+        padding: 0 10px;
+        border-radius: 6px;
+        background: #0ea5e9;
+        color: #fff;
+        border: 2px solid transparent; /* reserve space for focus border */
+        cursor: pointer;
+        font-weight: 600;
+        white-space: nowrap;
+    }}
+    #{table_id} .copy-btn:hover {{ background: #0284c7; }}
+    #{table_id} .copy-btn:focus-visible {{
+        border-color: #38bdf8; /* accessible focus without layout shift */
+        outline: none;
+    }}
+    #{table_id} .copy-btn.copied {{ background: #16a34a; }}
+    </style>
 
     <div id="{table_id}">
       <table>
