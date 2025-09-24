@@ -48,11 +48,10 @@ def fetch_ohlc_for_date(instrument, granularity, target_date):
     def iso_z(d):
         return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
-    # Build a window around the target date to ensure the candle is included
     if granularity == "D":
         frm = target_date - timedelta(days=1)
         to = target_date + timedelta(days=2)
-    else:  # "W"
+    else:
         frm = target_date - timedelta(days=21)
         to = target_date + timedelta(days=7)
 
@@ -80,7 +79,6 @@ def fetch_ohlc_for_date(instrument, granularity, target_date):
                 return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
         raise ValueError(f"Daily candle for {target_str} not found (instrument {instrument})")
     else:
-        # Find the weekly candle that contains target_date
         for c in candles:
             start = parse_iso_date(c["time"])
             end = start + timedelta(days=7)
@@ -115,21 +113,7 @@ def log_to_csv(name, date, o, h, l, c, pivots):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(
-                [
-                    "Name",
-                    "Date",
-                    "Open",
-                    "High",
-                    "Low",
-                    "Close",
-                    "R3",
-                    "R2",
-                    "R1",
-                    "Pivot",
-                    "S1",
-                    "S2",
-                    "S3",
-                ]
+                ["Name", "Date", "Open", "High", "Low", "Close", "R3", "R2", "R1", "Pivot", "S1", "S2", "S3"]
             )
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
@@ -141,26 +125,18 @@ def fmt4(v):
 
 # 🧰 Native, theme-aware pivot list with per-level copy
 def render_pivot_levels_native(rows):
-    """
-    rows: list of tuples [(level_label, value), ...]
-    Layout: Level | Value | Copy (each level has its own copy control)
-    """
-    # Header
     h1, h2, h3 = st.columns([1.0, 1.6, 1.0])
     h1.markdown("**Level**")
     h2.markdown("**Value**")
     h3.markdown("**Copy**")
 
-    # Rows
     for lvl, val in rows:
         val_str = fmt4(val)
         c1, c2, c3 = st.columns([1.0, 1.6, 1.0])
         c1.markdown(f"**{lvl}**")
         c2.markdown(f"`{val_str}`")
-        # st.code has a native copy icon; copies just the numeric value
         c3.code(val_str, language="text")
 
-    # Copy all (label + value) if needed
     with st.expander("Copy all levels"):
         all_text = "\n".join(f"{lvl}: {fmt4(val)}" for lvl, val in rows)
         st.code(all_text, language="text")
@@ -175,11 +151,9 @@ def run_pivot(granularity="D", custom_date=None):
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                # Use the previous period's candle relative to the selected date
-                prev_date = custom_date - timedelta(days=1 if granularity == "D" else 7)
-                o, h, l, c, candle_date = fetch_ohlc_for_date(symbol, granularity, prev_date)
+                target_date = custom_date - timedelta(days=1)
+                o, h, l, c, candle_date = fetch_ohlc_for_date(symbol, granularity, target_date)
             else:
-                # Latest previous completed candle (default behavior)
                 o, h, l, c, candle_date = fetch_ohlc(symbol, granularity)
 
             pivots = calculate_pivots(h, l, c)
@@ -188,7 +162,6 @@ def run_pivot(granularity="D", custom_date=None):
 
             st.markdown(f"### 📊 {name}")
 
-            # Native metrics (theme-aware)
             cols = st.columns(4)
             cols[0].metric("Open", f"{o:.2f}")
             cols[1].metric("High", f"{h:.2f}")
@@ -197,15 +170,7 @@ def run_pivot(granularity="D", custom_date=None):
 
             st.markdown("#### 📌 Pivot Levels")
 
-            rows = [
-                ("R3", r3),
-                ("R2", r2),
-                ("R1", r1),
-                ("Pivot", p),
-                ("S1", s1),
-                ("S2", s2),
-                ("S3", s3),
-            ]
+            rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p), ("S1", s1), ("S2", s2), ("S3", s3)]
             render_pivot_levels_native(rows)
 
             st.divider()
@@ -226,15 +191,4 @@ def view_logs():
 # 🧭 Sidebar Controls
 st.sidebar.title("📈 Pivot Dashboard")
 action = st.sidebar.radio("Choose Action", ["Calculate Pivots", "View Logs"])
-if action == "Calculate Pivots":
-    timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"], horizontal=True)
-    granularity = "D" if timeframe == "Daily" else "W"
-
-    use_custom = st.sidebar.toggle("Use custom date", value=False)
-    custom_date = None
-    if use_custom:
-        custom_date = st.sidebar.date_input("Select date", value=datetime.now(timezone.utc).date())
-
-    run_pivot(granularity, custom_date=custom_date if use_custom else None)
-else:
-    view_logs()
+if
