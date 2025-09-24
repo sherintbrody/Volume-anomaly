@@ -78,22 +78,16 @@ def run_pivot(granularity="D"):
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
-            st.markdown(f"    ")
-            
+            st.markdown("#### 📌 Pivot Levels")
 
-            # 📐 Compact Two-Column Layout
-            left_col, right_col = st.columns(2)
-
-            with left_col:
-                st.text_input("R3", value=r3, key=f"R3_{name}")
-                st.text_input("R2", value=r2, key=f"R2_{name}")
-                st.text_input("R1", value=r1, key=f"R1_{name}")
-                st.text_input("Pivot", value=p, key=f"Pivot_{name}")
-
-            with right_col:
-                st.text_input("S1", value=s1, key=f"S1_{name}")
-                st.text_input("S2", value=s2, key=f"S2_{name}")
-                st.text_input("S3", value=s3, key=f"S3_{name}")
+            # 🧱 Compact Row-wise Layout
+            for label, value in [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
+                                 ("S1", s1), ("S2", s2), ("S3", s3)]:
+                col1, col2 = st.columns([0.3, 0.7])
+                with col1:
+                    st.markdown(f"<span style='font-size:14px'><b>{label}</b></span>", unsafe_allow_html=True)
+                with col2:
+                    st.text_input("", value=value, key=f"{label}_{name}")
 
             st.markdown("---")
         except Exception as e:
