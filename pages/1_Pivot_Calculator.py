@@ -42,7 +42,7 @@ def fetch_ohlc(instrument, granularity="D"):
     ohlc = prev['mid']
     return float(ohlc['o']), float(ohlc['h']), float(ohlc['l']), float(ohlc['c']), date
 
-# 📊 Pivot Logic
+# 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
     pivot = (high + low + close) / 3
     r1 = 2 * pivot - low
@@ -55,11 +55,14 @@ def calculate_pivots(high, low, close):
 
 # 🧾 Log to CSV
 def log_to_csv(name, date, o, h, l, c, pivots):
+    file_exists = os.path.exists(LOG_FILE)
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Name", "Date", "Open", "High", "Low", "Close", "R3", "R2", "R1", "Pivot", "S1", "S2", "S3"])
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
-# 🧰 Render pivot table with copy buttons
+# 🧰 Render pivot table with fixed-layout copy buttons
 def render_pivot_table(name, levels):
     """
     levels: list of tuples [(label, value), ...]
@@ -67,17 +70,19 @@ def render_pivot_table(name, levels):
     table_id = f"tbl_{name}_{uuid4().hex}"
     rows_html = []
     for i, (lvl, val) in enumerate(levels):
-        # Ensure string with 4 decimals
-        val_str = f"{float(val):.4f}" if isinstance(val, (int, float)) or str(val).replace('.', '', 1).isdigit() else str(val)
+        try:
+            val_str = f"{float(val):.4f}"
+        except Exception:
+            val_str = str(val)
         btn_id = f"btn_{i}_{uuid4().hex}"
-        msg_id = f"msg_{i}_{uuid4().hex}"
         rows_html.append(f"""
             <tr>
-              <td style="padding:8px 12px; font-weight:600">{lvl}</td>
-              <td style="padding:8px 12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace">{val_str}</td>
-              <td style="padding:8px 12px">
-                <button id="{btn_id}" class="copy-btn" data-value="{val_str}">Copy</button>
-                <span id="{msg_id}" class="copy-msg" style="margin-left:8px; color:#16a34a; font-size:12px;"></span>
+              <td class="lvl-td">{lvl}</td>
+              <td class="val-td">{val_str}</td>
+              <td class="copy-td">
+                <button id="{btn_id}" class="copy-btn" data-value="{val_str}">
+                  <span class="btn-label">Copy</span>
+                </button>
               </td>
             </tr>
         """)
@@ -85,33 +90,66 @@ def render_pivot_table(name, levels):
 
     html = f"""
     <style>
-    #{table_id} .copy-btn {{
-        background: #0ea5e9;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 6px 10px;
-        cursor: pointer;
-    }}
-    #{table_id} .copy-btn:hover {{ background: #0284c7; }}
     #{table_id} table {{
-        border-collapse: collapse;
         width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed; /* prevents reflow/shift */
         margin-top: 6px;
     }}
-    #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
+    #{table_id} col.col-level {{ width: 20%; }}
+    #{table_id} col.col-value {{ width: 55%; }}
+    #{table_id} col.col-copy  {{ width: 25%; }}
+
     #{table_id} th, #{table_id} td {{
         border-bottom: 1px solid rgba(0,0,0,0.08);
+        padding: 8px 12px;
     }}
+    #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
     #{table_id} th {{
         text-align: left;
-        padding: 8px 12px;
         font-weight: 700;
         font-size: 14px;
     }}
+    #{table_id} .lvl-td {{ font-weight: 600; }}
+    #{table_id} .val-td {{
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: nowrap;
+    }}
+    #{table_id} .copy-td {{
+        display: flex;
+        align-items: center;
+    }}
+    /* Fixed-width button to avoid any nudge when text changes */
+    #{table_id} .copy-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 96px; /* keep button width constant */
+        height: 32px;
+        padding: 0 10px;
+        border-radius: 6px;
+        background: #0ea5e9;
+        color: #fff;
+        border: 2px solid transparent; /* reserve space for focus border */
+        cursor: pointer;
+        font-weight: 600;
+        white-space: nowrap;
+    }}
+    #{table_id} .copy-btn:hover {{ background: #0284c7; }}
+    #{table_id} .copy-btn:focus-visible {{
+        border-color: #38bdf8; /* accessible focus without layout shift */
+        outline: none;
+    }}
+    #{table_id} .copy-btn.copied {{ background: #16a34a; }}
     </style>
+
     <div id="{table_id}">
       <table>
+        <colgroup>
+          <col class="col-level" />
+          <col class="col-value" />
+          <col class="col-copy" />
+        </colgroup>
         <thead>
           <tr>
             <th>Level</th>
@@ -124,25 +162,48 @@ def render_pivot_table(name, levels):
         </tbody>
       </table>
     </div>
+
     <script>
-      const root = document.getElementById("{table_id}");
-      const buttons = Array.from(root.querySelectorAll('.copy-btn'));
-      buttons.forEach((btn) => {{
+      (function() {{
+        const root = document.getElementById("{table_id}");
+        const buttons = root.querySelectorAll('.copy-btn');
+        buttons.forEach((btn) => {{
           btn.addEventListener('click', () => {{
-              const val = btn.getAttribute('data-value');
-              navigator.clipboard.writeText(val).then(() => {{
-                  const msg = btn.nextElementSibling;
-                  if (msg) {{
-                      msg.textContent = 'Copied!';
-                      setTimeout(() => {{ msg.textContent = ''; }}, 1200);
-                  }}
-              }});
+            const val = btn.getAttribute('data-value');
+            const label = btn.querySelector('.btn-label');
+            const original = label.textContent;
+
+            const setCopied = () => {{
+              btn.classList.add('copied');
+              label.textContent = 'Copied!';
+              setTimeout(() => {{
+                btn.classList.remove('copied');
+                label.textContent = original;
+              }}, 1200);
+            }};
+
+            if (navigator.clipboard && window.isSecureContext) {{
+              navigator.clipboard.writeText(val).then(setCopied).catch(setCopied);
+            }} else {{
+              // Fallback for non-secure contexts
+              const ta = document.createElement('textarea');
+              ta.value = val;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.focus();
+              ta.select();
+              try {{ document.execCommand('copy'); }} catch (e) {{}}
+              document.body.removeChild(ta);
+              setCopied();
+            }}
           }});
-      }});
+        }});
+      }})();
     </script>
     """
-    # Height: header + 7 rows approx 40px each
-    components.html(html, height=320, scrolling=False)
+    # ~7 rows + header
+    components.html(html, height=360, scrolling=False)
 
 # 🚀 Run Pivot Calculation
 def run_pivot(granularity="D"):
@@ -152,9 +213,9 @@ def run_pivot(granularity="D"):
 
     for name, symbol in INSTRUMENTS.items():
         try:
-            o, h, l, c, _ = fetch_ohlc(symbol, granularity)
+            o, h, l, c, candle_date = fetch_ohlc(symbol, granularity)
             pivots = calculate_pivots(h, l, c)
-            log_to_csv(name, today - timedelta(days=1), o, h, l, c, pivots)
+            log_to_csv(name, candle_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
 
             st.markdown(f"### 📊 {name}")
@@ -166,7 +227,7 @@ def run_pivot(granularity="D"):
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
-            st.markdown(" ")
+            st.markdown("")
 
             # 🧱 Table with copy buttons
             rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
@@ -184,6 +245,7 @@ def view_logs():
         return
     with open(LOG_FILE, "r") as f:
         reader = csv.reader(f)
+        header = next(reader, None)
         for row in reader:
             name, date, o, h, l, c, r3, r2, r1, p, s1, s2, s3 = row
             st.markdown(f"### 📊 {name} — {date}")
