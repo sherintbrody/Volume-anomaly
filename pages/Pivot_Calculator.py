@@ -73,17 +73,24 @@ def run_pivot():
 
             color = "green" if c > o else "red"
             ohlc_html = f"""
-            <div style='color:{color}; font-weight:bold'>
+            <div style='color:{color}; font-size:18px; font-weight:bold'>
             Open: {o:.2f} &nbsp;&nbsp; High: {h:.2f} &nbsp;&nbsp; Low: {l:.2f} &nbsp;&nbsp; Close: {c:.2f}
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
 
-            st.write(f"R3: {r3:.2f}  R2: {r2:.2f}  R1: {r1:.2f}  Pivot: {p:.2f}")
-            st.write(f"S1: {s1:.2f}  S2: {s2:.2f}  S3: {s3:.2f}")
+            pivot_html = f"""
+            <div style='font-size:17px'>
+            R3: {r3:.2f} &nbsp;&nbsp; R2: {r2:.2f} &nbsp;&nbsp; R1: {r1:.2f} &nbsp;&nbsp; Pivot: {p:.2f}<br>
+            S1: {s1:.2f} &nbsp;&nbsp; S2: {s2:.2f} &nbsp;&nbsp; S3: {s3:.2f}
+            </div>
+            """
+            st.markdown(pivot_html, unsafe_allow_html=True)
+
             st.markdown("---")
         except Exception as e:
             st.error(f"{name}: Failed — {e}")
+
 
 
 # 📂 View Logs
