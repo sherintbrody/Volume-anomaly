@@ -8,9 +8,9 @@ import os
 st.set_page_config(page_title="Pivot Calculator", page_icon="📈")
 
 # 🔐 OANDA API Token
-OANDA_TOKEN = "your_token_here"  # Replace with your actual token
-HEADERS = {"Authorization": f"Bearer {OANDA_TOKEN}"}
-BASE_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
+API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+BASE_URL = "https://api-fxpractice.oanda.com/v3"
 LOG_FILE = "pivot_log.csv"
 
 # 📈 Instruments
