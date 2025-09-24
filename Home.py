@@ -64,6 +64,9 @@ headers = {"Authorization": f"Bearer {API_KEY}"}
 ALERT_STATE_FILE = "last_alert_state.json"
 ALERT_DATE_FILE = "last_alert_date.txt"
 
+# How many candles to display in the table
+DISPLAY_ROWS = 10
+
 # ====== ALERT MEMORY ======
 def load_alerted_candles():
     if os.path.exists(ALERT_STATE_FILE):
@@ -246,7 +249,7 @@ def get_spike_bar(multiplier):
 def process_instrument(name, code, bucket_size_minutes, alerted_candles):
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes)
     now_utc = datetime.now(UTC)
-    from_time = now_utc - timedelta(minutes=15 * 30)  # last 30x 15-min candles
+    from_time = now_utc - timedelta(minutes=15 * 30)  # last 30x 15-min candles fetched
     candles = fetch_candles(code, from_time, now_utc, granularity="M15")
     if not candles:
         return [], [], {}
@@ -289,7 +292,7 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             sentiment
         ])
 
-        # Summary from the last candle
+        # Summary from the last candle (overwrites until final)
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
             "bucket": bucket,
@@ -339,7 +342,8 @@ def render_card(name, rows, bucket_minutes, summary):
         "Open", "High", "Low", "Close",
         "Volume", "Spike Δ", "Strength", "Sentiment"
     ]
-    trimmed_rows = rows[-15:] if len(rows) > 15 else rows
+    # Show only the latest DISPLAY_ROWS candles
+    trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
 
     st.dataframe(
