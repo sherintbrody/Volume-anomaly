@@ -56,22 +56,35 @@ def log_to_csv(name, date, o, h, l, c, pivots):
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
 # 🚀 Run Pivot Calculation
+from datetime import datetime, timezone, timedelta
+
 def run_pivot():
     today = datetime.now(timezone.utc).date()
     st.subheader(f"📅 Pivot Levels for {today}")
+
     for name, symbol in INSTRUMENTS.items():
         try:
-            o, h, l, c, candle_date = fetch_yesterdays_ohlc(symbol)
+            o, h, l, c, _ = fetch_yesterdays_ohlc(symbol)
             pivots = calculate_pivots(h, l, c)
-            log_to_csv(name, candle_date, o, h, l, c, pivots)
+            log_to_csv(name, today - timedelta(days=1), o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
-            st.markdown(f"### 📊 {name} ")
-            st.write(f"Open: {o:.2f}  High: {h:.2f}  Low: {l:.2f}  Close: {c:.2f}")
+
+            st.markdown(f"### 📊 {name}")
+
+            color = "green" if c > o else "red"
+            ohlc_html = f"""
+            <div style='color:{color}; font-weight:bold'>
+            Open: {o:.2f} &nbsp;&nbsp; High: {h:.2f} &nbsp;&nbsp; Low: {l:.2f} &nbsp;&nbsp; Close: {c:.2f}
+            </div>
+            """
+            st.markdown(ohlc_html, unsafe_allow_html=True)
+
             st.write(f"R3: {r3:.2f}  R2: {r2:.2f}  R1: {r1:.2f}  Pivot: {p:.2f}")
             st.write(f"S1: {s1:.2f}  S2: {s2:.2f}  S3: {s3:.2f}")
             st.markdown("---")
         except Exception as e:
             st.error(f"{name}: Failed — {e}")
+
 
 # 📂 View Logs
 def view_logs():
