@@ -105,14 +105,16 @@ def view_logs():
             st.write(f"S1: {s1}  S2: {s2}  S3: {s3}")
             st.markdown("---")
 
+
 # 🧭 UI Controls
 st.title("📈 Pivot Point Calculator")
 
-action = st.radio("Choose Action", ["Calculate Pivots", "View Logs"])
+action = st.sidebar.radio("Choose Action", ["Calculate Pivots", "View Logs"])
 
 if action == "Calculate Pivots":
-    timeframe = st.radio("Select Timeframe", ["Daily", "Weekly"])
+    timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"])
     granularity = "D" if timeframe == "Daily" else "W"
     run_pivot(granularity)
 else:
     view_logs()
+
