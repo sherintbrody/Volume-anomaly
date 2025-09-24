@@ -289,7 +289,7 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             sentiment
         ])
 
-        # Summary from the last candle (overwrites until final)
+        # Summary from the last candle
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
             "bucket": bucket,
