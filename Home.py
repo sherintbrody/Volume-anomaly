@@ -42,15 +42,6 @@ BADGE_CSS = """
 .badge.ok { background: var(--ok-bg); color:var(--ok-fg); border-color:var(--ok-br); }
 .badge.warn { background: var(--warn-bg); color:var(--warn-fg); border-color:var(--warn-br); }
 .section-title { margin: 0 0 4px 0; }
-
-/* Compact table tweaks */
-div[data-testid="stDataFrame"] th div[role="button"] p,
-div[data-testid="stDataFrame"] tbody td div {
-  font-size: 12px !important;
-}
-div[data-testid="stDataFrame"] td, div[data-testid="stDataFrame"] th {
-  padding: 4px 6px !important;
-}
 </style>
 """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
@@ -113,7 +104,7 @@ if "bucket_choice" not in st.session_state:
 if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
 
-# Optional secrets
+# Optional: provide Telegram secrets via Streamlit Cloud
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 
@@ -153,11 +144,11 @@ st.sidebar.slider(
     key="threshold_multiplier"
 )
 
+# New: layout toggle (only layout changes, no size alterations)
 layout_choice = st.sidebar.radio(
     "Card layout",
     ["Compact (2 per row)", "Wide (1 per row)"],
     index=0,
-    help="If the table feels cramped, switch to Wide."
 )
 
 # ====== AUTO-REFRESH ======
@@ -193,7 +184,12 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     from_time = min(from_time, now_utc)
     to_time = min(to_time, now_utc)
 
-    params = {"granularity": granularity, "price": "M", "from": from_time.isoformat(), "to": to_time.isoformat()}
+    params = {
+        "granularity": granularity,
+        "price": "M",
+        "from": from_time.isoformat(),
+        "to": to_time.isoformat()
+    }
     url = f"{BASE_URL}/accounts/{ACCOUNT_ID}/instruments/{instrument_code}/candles"
     try:
         s = get_session()
@@ -216,12 +212,11 @@ def get_time_bucket(dt_ist, bucket_size_minutes):
 
 @st.cache_data(ttl=600)
 def compute_bucket_averages(code, bucket_size_minutes):
-    from collections import defaultdict
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
 
-    for i in range(21):  # 21-day lookback
+    for i in range(21):
         day_ist = today_ist - timedelta(days=i)
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
@@ -247,7 +242,6 @@ def get_sentiment(candle):
     return "🟩" if c > o else "🟥" if c < o else "▪️"
 
 def pad_display(s, width):
-    import wcwidth
     pad_len = width - sum(wcwidth.wcwidth(ch) for ch in s)
     return s + " " * max(pad_len, 0)
 
@@ -329,7 +323,6 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
 def render_card(name, rows, bucket_minutes, summary):
     st.markdown(f"### {name}", help="Instrument")
 
-    # Chips
     if summary:
         chips = [
             f'<span class="badge neutral">Bucket: {bucket_minutes}m</span>',
@@ -344,40 +337,29 @@ def render_card(name, rows, bucket_minutes, summary):
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
 
-    # Compact headers to fit the card
     columns = [
-        "Time", "Bucket", "O", "H", "L", "C", "Vol", "Δ", "Str", "Sent"
+        "Time (IST)",
+        f"Time Bucket ({bucket_minutes} min)",
+        "Open", "High", "Low", "Close",
+        "Volume", "Spike Δ", "Strength", "Sentiment"
     ]
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
-    # Map rows to compact headers
-    compact_rows = [
-        [
-            r[0], r[1],  # Time, Bucket
-            r[2], r[3], r[4], r[5],  # O H L C
-            r[6],  # Vol
-            r[7],  # Δ
-            r[8],  # Str
-            r[9],  # Sent
-        ] for r in trimmed_rows
-    ]
-    df = pd.DataFrame(compact_rows, columns=columns)
+    df = pd.DataFrame(trimmed_rows, columns=columns)
 
     st.dataframe(
         df,
         use_container_width=True,
         hide_index=True,
-        height=480,
+        height=520,
         column_config={
-            "Time": st.column_config.TextColumn(width="medium"),
-            "Bucket": st.column_config.TextColumn(width="small"),
-            "O": st.column_config.NumberColumn(format="%.1f", width="small"),
-            "H": st.column_config.NumberColumn(format="%.1f", width="small"),
-            "L": st.column_config.NumberColumn(format="%.1f", width="small"),
-            "C": st.column_config.NumberColumn(format="%.1f", width="small"),
-            "Vol": st.column_config.NumberColumn(format="%.0f", width="small"),
-            "Δ": st.column_config.TextColumn(width="small"),
-            "Str": st.column_config.TextColumn(width="small", help="Relative bar when above threshold"),
-            "Sent": st.column_config.TextColumn(width="small", help="🟩 up, 🟥 down, ▪️ flat"),
+            "Open": st.column_config.NumberColumn(format="%.1f"),
+            "High": st.column_config.NumberColumn(format="%.1f"),
+            "Low": st.column_config.NumberColumn(format="%.1f"),
+            "Close": st.column_config.NumberColumn(format="%.1f"),
+            "Volume": st.column_config.NumberColumn(format="%.0f"),
+            "Spike Δ": st.column_config.TextColumn(),
+            "Strength": st.column_config.TextColumn(help="Relative bar when above threshold"),
+            "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
         },
     )
 
@@ -402,7 +384,6 @@ def run_volume_check():
 
     bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
 
-    # Header
     top_l, top_r = st.columns([3, 2])
     with top_l:
         st.subheader("📊 Volume Anomaly Detector")
@@ -421,10 +402,10 @@ def run_volume_check():
     with top_r:
         st.info("Tip: Turn on Telegram alerts in the sidebar to receive spike notifications.")
 
-    # Grid layout (2-up compact or 1-up wide)
     names = st.session_state.selected_instruments
+    # Use layout toggle to set cards per row
     cards_per_row = 1 if layout_choice.startswith("Wide") else 2
-    cols = st.columns(cards_per_row) if len(names) > 1 else [st.container()]
+    cols = st.columns(cards_per_row) if cards_per_row > 1 else [st.container()]
     col_idx = 0
 
     all_rows_have_data = False
