@@ -207,7 +207,7 @@ def render_pivot_table(name, levels):
     padding = 24
     height_px = header_h + row_h * len(levels) + padding
 
-    components.html(html, height=height_px, scrolling=False
+    components.html(html, height=height_px, scrolling=False)
 
 # 🚀 Run Pivot Calculation
 def run_pivot(granularity="D"):
