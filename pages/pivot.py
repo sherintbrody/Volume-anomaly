@@ -42,7 +42,8 @@ def _request_candles(instrument, params):
 
 def _extract_ohlc(candle):
     ohlc = candle[OHLC_KEY]
-    return float(ohlc["o"]), float(ohlc["h"]), float(ohlhc["l"]), float(ohlc["c"])
+    # FIXED typo here: ohlhc -> ohlc
+    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"])
 
 # 🔍 Last completed candle (same method as your working script)
 def fetch_last_completed_candle(instrument, granularity="D"):
@@ -68,7 +69,7 @@ def fetch_prior_candle_before_date(instrument, granularity, selected_date):
             c = candles[-1]
             o, h, l, c_close = _extract_ohlc(c)
             return o, h, l, c_close, c["time"][:10]
-        # Fallback if boundary yields nothing (e.g., rare gaps)
+        # Fallback if boundary yields nothing (rare)
         t = selected_date - timedelta(days=1)
         for _ in range(9):
             params["to"] = iso_midnight_utc(t)
@@ -141,7 +142,7 @@ def run_pivot(granularity="D", custom_date=None):
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                # Subtract one day here to avoid to-boundary including the same day's candle
+                # Subtract one day here to avoid 'to' boundary including the same day's candle
                 query_date = custom_date - timedelta(days=1) if granularity == "D" else custom_date
                 o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, query_date)
             else:
