@@ -27,6 +27,10 @@ INSTRUMENTS = {
     "US30": "US30_USD",
 }
 
+def iso_midnight_utc(d: datetime.date) -> str:
+    # Returns YYYY-MM-DDT00:00:00Z
+    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
 # 🔍 Latest previous completed candle (for current pivots)
 def fetch_ohlc(instrument, granularity="D"):
     params = {"granularity": granularity, "count": 2, "price": "M"}
@@ -36,85 +40,30 @@ def fetch_ohlc(instrument, granularity="D"):
     candles = r.json().get("candles", [])
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
-    prev = candles[-2]  # last completed
+    prev = candles[-2]  # last completed candle
     date = prev["time"][:10]
     ohlc = prev["mid"]
     return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
 
-def iso_z(d):
-    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
-
-# 🔎 Fetch daily candle by exact calendar date (YYYY-MM-DD)
-def fetch_daily_candle_by_date(instrument, candle_date):
+# 🔎 Previous-period candle relative to a selected date (skips weekends automatically)
+# - Daily: last completed daily candle strictly before selected_date (Fri for Mon/Sat/Sun; D-1 otherwise)
+# - Weekly: last completed weekly candle strictly before selected_date
+def fetch_prev_candle_for_date(instrument, granularity, selected_date):
     url = BASE_URL.format(instrument)
-    # Small window to ensure inclusion
     params = {
-        "granularity": "D",
+        "granularity": granularity,
         "price": "M",
-        "from": iso_z(candle_date - timedelta(days=3)),
-        "to": iso_z(candle_date + timedelta(days=1)),
+        "to": iso_midnight_utc(selected_date),  # end boundary at 00:00Z of the selected date
+        "count": 1,  # give me the last completed candle before 'to'
     }
     r = requests.get(url, headers=HEADERS, params=params, timeout=20)
     r.raise_for_status()
     candles = r.json().get("candles", [])
     if not candles:
-        raise ValueError(f"No candles returned for {instrument} in selected window")
-
-    target = candle_date.strftime("%Y-%m-%d")
-    for c in candles:
-        if c["time"][:10] == target and c.get("complete", True):
-            ohlc = c["mid"]
-            return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
-    raise ValueError(f"Daily candle for {instrument} on {target} not found")
-
-# 🗓️ Previous trading day helper (skip Saturday/Sunday)
-def previous_trading_day(d):
-    d = d - timedelta(days=1)
-    while d.weekday() >= 5:  # 5=Saturday, 6=Sunday
-        d = d - timedelta(days=1)
-    return d
-
-# 🔎 Weekly: fetch the weekly candle that contains a given date
-def fetch_weekly_candle_containing(instrument, target_date):
-    url = BASE_URL.format(instrument)
-    params = {
-        "granularity": "W",
-        "price": "M",
-        "from": iso_z(target_date - timedelta(days=90)),
-        "to": iso_z(target_date + timedelta(days=14)),
-    }
-    r = requests.get(url, headers=HEADERS, params=params, timeout=20)
-    r.raise_for_status()
-    candles = r.json().get("candles", [])
-    if not candles:
-        raise ValueError(f"No weekly candles for {instrument} in window")
-
-    def start_date(iso_str):
-        return datetime.strptime(iso_str[:19], "%Y-%m-%dT%H:%M:%S").date()
-
-    for c in candles:
-        start = start_date(c["time"])
-        end = start + timedelta(days=7)
-        if start <= target_date < end:
-            ohlc = c["mid"]
-            return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
-    raise ValueError(f"No weekly candle containing {target_date} for {instrument}")
-
-# 🔁 Prior-period fetcher respecting weekends for Daily, previous week for Weekly
-def fetch_prior_period_candle(instrument, granularity, selected_date):
-    if granularity == "D":
-        # Always use prior trading day (skip Sat/Sun), and step back again if holiday/no data
-        look = previous_trading_day(selected_date)
-        for _ in range(10):  # fallback for holidays
-            try:
-                return fetch_daily_candle_by_date(instrument, look)
-            except Exception:
-                look = previous_trading_day(look)
-        raise ValueError(f"Could not find a prior trading day candle before {selected_date}")
-    else:
-        # Use the previous week relative to the selected date
-        prev_week_date = selected_date - timedelta(days=7)
-        return fetch_weekly_candle_containing(instrument, prev_week_date)
+        raise ValueError(f"No prior {granularity} candle found before {selected_date} for {instrument}")
+    c = candles[-1]
+    ohlc = c["mid"]
+    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
 
 # 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
@@ -198,8 +147,10 @@ def run_pivot(granularity="D", custom_date=None):
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                o, h, l, c, candle_date = fetch_prior_period_candle(symbol, granularity, custom_date)
+                # Always pick the last completed candle BEFORE the selected date
+                o, h, l, c, candle_date = fetch_prev_candle_for_date(symbol, granularity, custom_date)
             else:
+                # Latest previous completed candle relative to now
                 o, h, l, c, candle_date = fetch_ohlc(symbol, granularity)
 
             pivots = calculate_pivots(h, l, c)
