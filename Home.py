@@ -313,10 +313,10 @@ def run_volume_check():
                 sentiment = vol_part.split()[-1]
 
                 formatted_msgs.append(
-                    f"🔍 Instrument: {instrument}\n"
-                    f"🕒 Time: {time_str}\n"
-                    f"📊 Volume: {vol_val} {spike_delta}\n"
-                    f"📈 Sentiment: {sentiment}"
+                    f"{'🔍 Instrument:':<12} {instrument}\n"
+                    f"{'🕒 Time:':<12} {time_str}\n"
+                    f"{'📊 Volume:':<12} {vol_val} {spike_delta}\n"
+                    f"{'📈 Sentiment:':<12} {sentiment}"
                 )
             except:
                 formatted_msgs.append(raw)
