@@ -42,7 +42,7 @@ def _request_candles(instrument, params):
 
 def _extract_ohlc(candle):
     ohlc = candle[OHLC_KEY]
-    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"])
+    return float(ohlc["o"]), float(ohlc["h"]), float(ohlhc["l"]), float(ohlc["c"])
 
 # 🔍 Last completed candle (same method as your working script)
 def fetch_last_completed_candle(instrument, granularity="D"):
@@ -54,25 +54,7 @@ def fetch_last_completed_candle(instrument, granularity="D"):
     o, h, l, c_close = _extract_ohlc(c)
     return o, h, l, c_close, c["time"][:10]
 
-# 🔎 Exact daily candle for a UTC date using OANDA D candles (00:00–23:59:59 UTC)
-def fetch_daily_candle_by_date_utc(instrument, candle_date):
-    params = {
-        "granularity": "D",
-        "price": PRICE_TYPE,
-        "from": iso_midnight_utc(candle_date),
-        "to": iso_midnight_utc(candle_date + timedelta(days=1)),
-    }
-    candles = _request_candles(instrument, params)
-    target = candle_date.strftime("%Y-%m-%d")
-    for c in candles:
-        if c.get("complete", True) and c["time"][:10] == target:
-            o, h, l, c_close = _extract_ohlc(c)
-            return o, h, l, c_close, target
-    raise ValueError(f"Daily candle for {instrument} on {target} (UTC) not found")
-
-# 🔁 Prior completed candle strictly before a selected date (NO extra subtraction here)
-# - Daily: to=selected_date 00:00Z, count=1 -> last completed daily candle strictly before that (Fri for Mon; Mon for Tue; ...)
-# - Weekly: to=selected_date 00:00Z, count=1 -> last completed weekly candle strictly before that
+# 🔁 Prior completed candle strictly before a selected date
 def fetch_prior_candle_before_date(instrument, granularity, selected_date):
     if granularity == "D":
         params = {
@@ -86,7 +68,7 @@ def fetch_prior_candle_before_date(instrument, granularity, selected_date):
             c = candles[-1]
             o, h, l, c_close = _extract_ohlc(c)
             return o, h, l, c_close, c["time"][:10]
-        # Fallback: step back a day if the 'to' boundary returns empty (rare)
+        # Fallback if boundary yields nothing (e.g., rare gaps)
         t = selected_date - timedelta(days=1)
         for _ in range(9):
             params["to"] = iso_midnight_utc(t)
@@ -153,14 +135,15 @@ def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
     pivot_date = custom_date if custom_date else today  # pivot date = selected date
-    basis = "previous trading day (UTC D candle)" if granularity == "D" else "previous week (W candle)"
+    basis = "previous trading day (D candle)" if granularity == "D" else "previous week (W candle)"
     st.subheader(f"📅 {label} Pivot Levels for {pivot_date} — based on {basis}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                # Fetch the last completed candle strictly BEFORE the pivot_date
-                o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, pivot_date)
+                # Subtract one day here to avoid to-boundary including the same day's candle
+                query_date = custom_date - timedelta(days=1) if granularity == "D" else custom_date
+                o, h, l, c, used_date = fetch_prior_candle_before_date(symbol, granularity, query_date)
             else:
                 o, h, l, c, used_date = fetch_last_completed_candle(symbol, granularity)
 
