@@ -227,7 +227,7 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
         over = (threshold > 0 and vol > threshold)
         mult = (vol / threshold) if over and threshold > 0 else 0
 
-        spike_diff = f"🔺{vol - int(threshold)}" if over else ""
+        spike_diff = f"▲{vol - int(threshold)}" if over else ""
         strength = get_spike_bar(mult) if over else pad_display("", 5)
         sentiment = get_sentiment
         sentiment = get_sentiment(c)
