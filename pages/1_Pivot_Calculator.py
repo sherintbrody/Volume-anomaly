@@ -62,7 +62,7 @@ def log_to_csv(name, date, o, h, l, c, pivots):
             writer.writerow(["Name", "Date", "Open", "High", "Low", "Close", "R3", "R2", "R1", "Pivot", "S1", "S2", "S3"])
         writer.writerow([name, date, o, h, l, c] + list(pivots))
 
-# 🧰 Render pivot table with fixed-layout copy buttons
+# 🧰 Render pivot table with fixed-layout copy buttons (auto-height so last row is visible)
 def render_pivot_table(name, levels):
     """
     levels: list of tuples [(label, value), ...]
@@ -93,7 +93,7 @@ def render_pivot_table(name, levels):
     #{table_id} table {{
         width: 100%;
         border-collapse: collapse;
-        table-layout: fixed; /* prevents reflow/shift */
+        table-layout: fixed; /* prevents column shift */
         margin-top: 6px;
     }}
     #{table_id} col.col-level {{ width: 20%; }}
@@ -102,7 +102,9 @@ def render_pivot_table(name, levels):
 
     #{table_id} th, #{table_id} td {{
         border-bottom: 1px solid rgba(0,0,0,0.08);
-        padding: 8px 12px;
+        padding: 10px 12px;
+        box-sizing: border-box;
+        vertical-align: middle;
     }}
     #{table_id} tr:nth-child(even) {{ background: rgba(0,0,0,0.03); }}
     #{table_id} th {{
@@ -110,7 +112,7 @@ def render_pivot_table(name, levels):
         font-weight: 700;
         font-size: 14px;
     }}
-    #{table_id} .lvl-td {{ font-weight: 600; }}
+    #{table_id} .lvl-td {{ font-weight: 600; white-space: nowrap; }}
     #{table_id} .val-td {{
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         white-space: nowrap;
@@ -118,6 +120,7 @@ def render_pivot_table(name, levels):
     #{table_id} .copy-td {{
         display: flex;
         align-items: center;
+        white-space: nowrap;
     }}
     /* Fixed-width button to avoid any nudge when text changes */
     #{table_id} .copy-btn {{
@@ -202,8 +205,15 @@ def render_pivot_table(name, levels):
       }})();
     </script>
     """
-    # ~7 rows + header
-    components.html(html, height=360, scrolling=False)
+
+    # Auto height so the last row (e.g., S3) is fully visible without scrollbars
+    # Rough estimate: header ~54px + ~48px per row + small padding
+    header_h = 54
+    row_h = 48
+    padding = 24
+    height_px = header_h + row_h * len(levels) + padding
+
+    components.html(html, height=height_px, scrolling=False)
 
 # 🚀 Run Pivot Calculation
 def run_pivot(granularity="D"):
@@ -227,7 +237,7 @@ def run_pivot(granularity="D"):
             </div>
             """
             st.markdown(ohlc_html, unsafe_allow_html=True)
-            st.markdown("")
+            st.markdown("#### 📌 Pivot Levels")
 
             # 🧱 Table with copy buttons
             rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p),
