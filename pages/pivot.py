@@ -1,6 +1,5 @@
 import streamlit as st
 from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
 import requests
 import csv
 import os
@@ -28,16 +27,8 @@ INSTRUMENTS = {
     "US30": "US30_USD",
 }
 
-NY_TZ = ZoneInfo("America/New_York")
-
-def iso_z_from_dt(dt_utc: datetime) -> str:
-    # Ensure UTC and RFC3339 Z
-    dt_utc = dt_utc.astimezone(timezone.utc).replace(microsecond=0)
-    return dt_utc.isoformat().replace("+00:00", "Z")
-
-def parse_oanda_time_z(ts: str) -> datetime:
-    # Parses "YYYY-MM-DDTHH:MM:SS.ssssssZ" safely to aware UTC datetime
-    return datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+def iso_midnight_utc(d):
+    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
 # 🔍 Latest previous completed candle (for current pivots)
 def fetch_ohlc(instrument, granularity="D"):
@@ -48,72 +39,68 @@ def fetch_ohlc(instrument, granularity="D"):
     candles = r.json().get("candles", [])
     if len(candles) < 2:
         raise ValueError("Not enough candles returned")
-    prev = candles[-2]  # last completed candle
+    prev = candles[-2]  # last completed
     date = prev["time"][:10]
     ohlc = prev["mid"]
     return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), date
 
-# 🔎 Custom DAILY: previous US trading day (aligned to New York midnight, skip Sat/Sun)
-def fetch_prev_daily_candle_us(instrument, selected_date):
-    """
-    selected_date: date the user picked (US-based). We fetch the prior US trading day.
-    Strategy: align daily candles to New York midnight and scan backwards to the last weekday.
-    """
-    url = BASE_URL.format(instrument)
-    # Anchor at NY midnight of the selected date
-    anchor_ny = datetime(selected_date.year, selected_date.month, selected_date.day, 0, 0, tzinfo=NY_TZ)
-    anchor_utc = anchor_ny.astimezone(timezone.utc)
+# 🗓️ Previous trading day helper (skip Saturday/Sunday)
+def previous_trading_day(d):
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        d = d - timedelta(days=1)
+    return d
 
+# 🔎 Fetch exact daily candle for a UTC day (alignment: UTC midnight)
+def fetch_daily_candle_by_date_utc(instrument, candle_date):
+    url = BASE_URL.format(instrument)
     params = {
         "granularity": "D",
         "price": "M",
-        "alignmentTimezone": "America/New_York",
-        "dailyAlignment": 0,  # align daily candles to 00:00 NY time
-        "to": iso_z_from_dt(anchor_utc),
-        "count": 7,  # get up to a week back to skip weekends/holidays
+        "alignmentTimezone": "UTC",
+        "dailyAlignment": 0,  # align daily candles to 00:00 UTC
+        "from": iso_midnight_utc(candle_date),
+        "to": iso_midnight_utc(candle_date + timedelta(days=1)),
     }
     r = requests.get(url, headers=HEADERS, params=params, timeout=20)
     r.raise_for_status()
     candles = r.json().get("candles", [])
-    if not candles:
-        raise ValueError(f"No daily candles found before {selected_date} (US) for {instrument}")
-
-    # Walk backward to find the most recent weekday strictly before selected_date
-    for c in reversed(candles):
-        t_utc = parse_oanda_time_z(c["time"])
-        t_ny_date = t_utc.astimezone(NY_TZ).date()
-        if t_ny_date < selected_date and t_ny_date.weekday() < 5:  # Mon-Fri
+    target = candle_date.strftime("%Y-%m-%d")
+    for c in candles:
+        if c.get("complete", True) and c["time"][:10] == target:
             ohlc = c["mid"]
-            return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), t_ny_date.strftime("%Y-%m-%d")
-    raise ValueError(f"No prior US trading day found before {selected_date} for {instrument}")
+            return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), target
+    raise ValueError(f"Daily candle for {instrument} on {target} (UTC) not found")
 
-# 🔎 Custom WEEKLY: previous weekly candle before selected date (aligned to New York TZ)
-def fetch_prev_weekly_candle_us(instrument, selected_date):
-    url = BASE_URL.format(instrument)
-    # Anchor at NY midnight of the selected date
-    anchor_ny = datetime(selected_date.year, selected_date.month, selected_date.day, 0, 0, tzinfo=NY_TZ)
-    anchor_utc = anchor_ny.astimezone(timezone.utc)
-
-    params = {
-        "granularity": "W",
-        "price": "M",
-        "alignmentTimezone": "America/New_York",
-        "weeklyAlignment": "Friday",  # common weekly alignment for FX
-        "to": iso_z_from_dt(anchor_utc),
-        "count": 1,  # last completed weekly candle before anchor
-    }
-    r = requests.get(url, headers=HEADERS, params=params, timeout=20)
-    r.raise_for_status()
-    candles = r.json().get("candles", [])
-    if not candles:
-        raise ValueError(f"No weekly candles found before {selected_date} (US) for {instrument}")
-
-    c = candles[-1]
-    ohlc = c["mid"]
-    # Convert start time to NY date label for clarity
-    t_utc = parse_oanda_time_z(c["time"])
-    ny_date = t_utc.astimezone(NY_TZ).date()
-    return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), ny_date.strftime("%Y-%m-%d")
+# 🔁 Prior-period fetcher (simple, no timezone complexity)
+def fetch_prior_period_candle(instrument, granularity, selected_date):
+    if granularity == "D":
+        # Always use the previous trading day (Fri for Mon/Sat/Sun; D-1 for Tue–Fri)
+        look = previous_trading_day(selected_date)
+        # In case of holidays/no data, step back until found (max 10 steps)
+        for _ in range(10):
+            try:
+                return fetch_daily_candle_by_date_utc(instrument, look)
+            except Exception:
+                look = previous_trading_day(look)
+        raise ValueError(f"Could not find a prior daily candle before {selected_date}")
+    else:
+        # Weekly: last completed weekly candle before selected date (UTC)
+        url = BASE_URL.format(instrument)
+        params = {
+            "granularity": "W",
+            "price": "M",
+            "to": iso_midnight_utc(selected_date),
+            "count": 1,
+        }
+        r = requests.get(url, headers=HEADERS, params=params, timeout=20)
+        r.raise_for_status()
+        candles = r.json().get("candles", [])
+        if not candles:
+            raise ValueError(f"No prior weekly candle before {selected_date} for {instrument}")
+        c = candles[-1]
+        ohlc = c["mid"]
+        return float(ohlc["o"]), float(ohlc["h"]), float(ohlc["l"]), float(ohlc["c"]), c["time"][:10]
 
 # 📊 Pivot Logic (Classic)
 def calculate_pivots(high, low, close):
@@ -191,27 +178,23 @@ def run_pivot(granularity="D", custom_date=None):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
     hdr_date = custom_date if custom_date else today
-    basis = "previous US trading day" if granularity == "D" else "previous week (US TZ)"
+    basis = "previous trading day" if granularity == "D" else "previous week"
     st.subheader(f"📅 {label} Pivot Levels for {hdr_date} — based on {basis}")
 
     for name, symbol in INSTRUMENTS.items():
         try:
             if custom_date:
-                if granularity == "D":
-                    o, h, l, c, used_date = fetch_prev_daily_candle_us(symbol, custom_date)
-                else:
-                    o, h, l, c, used_date = fetch_prev_weekly_candle_us(symbol, custom_date)
+                o, h, l, c, used_date = fetch_prior_period_candle(symbol, granularity, custom_date)
             else:
                 o, h, l, c, used_date = fetch_ohlc(symbol, granularity)
 
             pivots = calculate_pivots(h, l, c)
-            # Log using the displayed (NY-based) date for clarity
             log_to_csv(name, used_date, o, h, l, c, pivots)
             r3, r2, r1, p, s1, s2, s3 = pivots
 
-            st.markdown(f"### 📊 {name} — candle used (NY date): {used_date}")
+            st.markdown(f"### 📊 {name} — candle used: {used_date}")
 
-            # Native metrics (theme-aware)
+            # Native metrics
             cols = st.columns(4)
             cols[0].metric("Open", f"{o:.2f}")
             cols[1].metric("High", f"{h:.2f}")
@@ -255,7 +238,7 @@ if action == "Calculate Pivots":
     use_custom = st.sidebar.toggle("Use custom date", value=False)
     custom_date = None
     if use_custom:
-        custom_date = st.sidebar.date_input("Select date", value=datetime.now(NY_TZ).date())
+        custom_date = st.sidebar.date_input("Select date", value=datetime.now(timezone.utc).date())
 
     run_pivot(granularity, custom_date=custom_date if use_custom else None)
 else:
