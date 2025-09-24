@@ -144,13 +144,6 @@ st.sidebar.slider(
     key="threshold_multiplier"
 )
 
-# New: layout toggle (only layout changes, no size alterations)
-layout_choice = st.sidebar.radio(
-    "Card layout",
-    ["Compact (2 per row)", "Wide (1 per row)"],
-    index=0,
-)
-
 # ====== AUTO-REFRESH ======
 refresh_ms = st.session_state.refresh_minutes * 60 * 1000
 refresh_count = st_autorefresh(interval=refresh_ms, limit=None, key="volume-refresh")
@@ -185,7 +178,7 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     to_time = min(to_time, now_utc)
 
     params = {
-        "granularity": granularity,
+        "granularity": granularity,  # M15 by default; keep logic same
         "price": "M",
         "from": from_time.isoformat(),
         "to": to_time.isoformat()
@@ -216,7 +209,7 @@ def compute_bucket_averages(code, bucket_size_minutes):
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
 
-    for i in range(21):
+    for i in range(21):  # 21-day lookback
         day_ist = today_ist - timedelta(days=i)
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
@@ -282,7 +275,8 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
         mult = (vol / threshold) if over and threshold > 0 else (vol / avg if avg else 0)
 
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
-        strength = get_spike_bar(mult) if over else pad_display("", 5)
+        # strength column removed
+
         sentiment = get_sentiment(c)
 
         rows.append([
@@ -294,7 +288,6 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             f"{float(c['mid']['c']):.1f}",
             vol,
             spike_diff,
-            strength,
             sentiment
         ])
 
@@ -341,7 +334,7 @@ def render_card(name, rows, bucket_minutes, summary):
         "Time (IST)",
         f"Time Bucket ({bucket_minutes} min)",
         "Open", "High", "Low", "Close",
-        "Volume", "Spike Δ", "Strength", "Sentiment"
+        "Volume", "Spike Δ", "Sentiment"
     ]
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
@@ -358,7 +351,6 @@ def render_card(name, rows, bucket_minutes, summary):
             "Close": st.column_config.NumberColumn(format="%.1f"),
             "Volume": st.column_config.NumberColumn(format="%.0f"),
             "Spike Δ": st.column_config.TextColumn(),
-            "Strength": st.column_config.TextColumn(help="Relative bar when above threshold"),
             "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
         },
     )
@@ -403,9 +395,7 @@ def run_volume_check():
         st.info("Tip: Turn on Telegram alerts in the sidebar to receive spike notifications.")
 
     names = st.session_state.selected_instruments
-    # Use layout toggle to set cards per row
-    cards_per_row = 1 if layout_choice.startswith("Wide") else 2
-    cols = st.columns(cards_per_row) if cards_per_row > 1 else [st.container()]
+    cols = st.columns(2) if len(names) > 1 else [st.container()]
     col_idx = 0
 
     all_rows_have_data = False
