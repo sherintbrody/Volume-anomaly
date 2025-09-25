@@ -18,7 +18,110 @@ BADGE_CSS = """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
 
 st.title("COT Spec Index Analyzer + Signal Score")
-st.caption("Manual inputs (no auto-import). Use MarketBulls → Legacy → Large Speculators → Percent of OI and the 6M/36M gauges.")
+st.caption("Manual inputs (no auto‑import). Use MarketBulls → Legacy → Large Speculators → Percent of OI and the 6M/36M gauges.")
+
+# ---------- Playbook toggle ----------
+def render_playbook():
+    st.subheader("Step‑down trade playbook")
+    with st.container(border=True):
+        st.markdown("**1) Weekly bias (COT first, specs only)**")
+        st.markdown("""
+- Read COT Index 6M and 36M (relative position in last 26/156 weeks)
+  - Longs allowed: 6M > 60 AND 36M > 50
+  - Shorts allowed: 6M < 40 AND 36M < 50
+  - Neutral: otherwise
+- Extremes filter: if 6M or 36M > 85 (crowded long) or < 15 (crowded short) → trend mature; prefer pullbacks and reduce size
+- Momentum upgrade (optional): WoW Δ COT 6M ≥ +5 (longs) or ≤ −5 (shorts), or Open Interest WoW in the bias direction
+        """)
+    with st.container(border=True):
+        st.markdown("**2) Location (where to do business)**")
+        st.markdown("""
+- Mark Daily and H4 Supply/Demand zones
+  - Freshness: 1–2 retests max
+  - Reaction quality: base → strong departure; for absorption, wick ≥ 40% of range and body ≤ 40%
+- Add confluence:
+  - Fibonacci: pullback longs at 38.2–61.8% of last impulse; shorts mirrored. Extensions 127/161.8% are target magnets
+  - Pivots: Daily/Weekly Pivot, R1/R2/R3/S1/S2/S3
+- Rule of thumb: Prefer trades where a D/H4 zone overlaps a pivot band (or a Fib cluster) within 0.15–0.20 ATR(14)
+        """)
+    with st.container(border=True):
+        st.markdown("**3) Intraday context (pivots tell you the day type)**")
+        st.markdown("""
+- Above DP and holding → trend‑day up bias; below DP → trend‑day down bias
+- Rotation day: DP magnet, fade toward S1/R1 with confirmation
+- Best confluence: HTF zone ± pivot band ± Fib level
+        """)
+    with st.container(border=True):
+        st.markdown("**4) Confirmation (only then pull the trigger)**")
+        st.markdown("""
+- Volume spike (session‑aware)
+  - Compute per‑bucket percentile (e.g., 15m 95th percentile over last ~21 trading days). Spike if current volume ≥ P95 for that 15m slot
+  - Higher quality: last four 15m bars sum ≥ hourly P90 (dual‑TF confirmation)
+- Bollinger Bands (20 SMA, 2σ)
+  - Reversal/absorption: breach outside band then close back inside, ideally at HTF zone/pivot
+  - Breakout/continuation: full‑body close beyond band with rising Bandwidth (vol expansion)
+        """)
+    with st.container(border=True):
+        st.markdown("**5) Entry tactics (pick 1)**")
+        st.markdown("""
+- Reversal at zone (absorption)
+  - Long: at demand zone + pivot/Fib, rejection candle (long lower wick), volume ≥ P95, close back inside lower band
+  - Short: mirror at supply zone
+- Breakout‑retest (continuation)
+  - Close through level (zone edge/pivot), volume ≥ P95, fast retest holds (lower wick for longs, upper wick for shorts), then go
+        """)
+    with st.container(border=True):
+        st.markdown("**6) Risk, stop, targets**")
+        st.markdown("""
+- Initial stop: beyond the zone edge or 1.0× ATR(14) beyond trigger low/high (whichever is farther but logical)
+- Position size: 0.5–1.0R at extremes; 1.0–1.25R when not extreme with momentum upgrade
+- Targets:
+  - T1 = nearest opposing pivot (DP/R1/S1) or prior swing → take 50% off
+  - T2 = next pivot/HTF level or Fib 127/161.8% extension
+  - If trend‑day (holding DP): let a runner trail by last swing lows (longs) or 1× ATR(14); otherwise trail by 20 SMA (Bollinger midline)
+        """)
+    with st.container(border=True):
+        st.markdown("**7) Management rules**")
+        st.markdown("""
+- Time‑stop: if no progress after 3–5 bars on your execution timeframe, reduce or exit
+- Break‑even: after +1R, move stop to entry
+- No chase: never enter when price is >1–1.5 ATR below/above the 20 SMA or outside bands—wait for a pullback or a retest
+        """)
+    with st.container(border=True):
+        st.markdown("**8) Two quick flows to copy**")
+        st.markdown("""
+- Bullish bias (COT 6M>60, 36M>50)
+  1) Mark D/H4 demand; draw Fib of last daily upswing; add pivots  
+  2) Wait for price into zone ± DP/S1; require either:  
+     • Absorption: long lower wick + close back inside lower band + 15m vol ≥ P95  
+     • Breakout‑retest: reclaim DP with high vol; retest DP holds (lower wick)  
+  3) Long; stop under zone; T1 = DP/R1; T2 = R2 or Fib 127/161.8; trail by swing/ATR
+- Bearish bias (COT 6M<40, 36M<50)
+  1) Mark D/H4 supply; draw Fib of last daily downswing; add pivots  
+  2) Price rallies into zone ± DP/R1; require:  
+     • Absorption: upper wick + close back inside upper band + vol ≥ P95  
+     • Breakout‑retest down: lose DP on vol; retest DP fails (upper wick)  
+  3) Short; stop above zone; T1 = DP/S1; T2 = S2 or Fib 127/161.8; trail by swing/ATR
+        """)
+    with st.container(border=True):
+        st.markdown("**9) Pre‑trade audit (60 seconds)**")
+        st.markdown("""
+- News in next 60–90 min? If yes, smaller size or skip  
+- Spread/latency OK? If not, skip  
+- Session fit: London/NY opens for breakouts; off‑hours for fades
+        """)
+    with st.container(border=True):
+        st.markdown("**10) Common pitfalls (and fixes)**")
+        st.markdown("""
+- COT extreme and you chase: at 6M/36M >85 or <15, only sell rallies or buy dips—don’t chase breaks  
+- Using average volume, not percentiles: switch to percentile threshold per 15m bucket to avoid session bias  
+- Zone freshness ignored: if a zone has >2 retests, odds drop—demand stronger confirmation  
+- Pivot mismatch: fading against trend when price is holding above/below DP—align with the day type
+        """)
+
+show_playbook = st.toggle("Show trade playbook", value=False)
+if show_playbook:
+    render_playbook()
 
 # ---------- Tip (pp vs %) ----------
 with st.container(border=True):
@@ -32,7 +135,6 @@ with st.container(border=True):
 
 # ---------- Helpers ----------
 def parse_flt(s: str) -> Optional[float]:
-    """Parse text like '63.3' or '63.3%' to float. Returns None if blank."""
     if s is None: return None
     s = str(s).strip().replace("%", "")
     if s == "": return None
@@ -44,7 +146,6 @@ def fmt(x: Optional[float], nd: int = 1, suffix: str = "") -> str:
 
 def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
                   net_pct: Optional[float] = None) -> Optional[float]:
-    # Specs Net %OI = Long% - Short%
     if net_pct is not None:
         return float(net_pct)
     if long_pct is None or short_pct is None:
@@ -52,20 +153,14 @@ def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
     return float(long_pct) - float(short_pct)
 
 def wow_pp(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    # Week-over-week absolute difference in percentage points
     if current is None or previous is None: return None
     return float(current) - float(previous)
 
 def pct_change(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    # Relative percent change (for Open Interest)
     if current is None or previous is None or previous == 0: return None
     return (float(current) - float(previous)) / float(previous) * 100.0
 
 def bias_from_indices(cot6: Optional[float], cot36: Optional[float]) -> str:
-    # Specs-only, relative filter
-    # Longs allowed if 6M > 60 and 36M > 50
-    # Shorts allowed if 6M < 40 and 36M < 50
-    # Else Neutral
     if cot6 is None or cot36 is None:
         return "Neutral"
     if cot6 > 60 and cot36 > 50:
@@ -83,18 +178,15 @@ def flags_and_grade(
     net_wow_pp: Optional[float],
     net_now: Optional[float]
 ) -> Dict[str, str]:
-    # Extremes: 6M or 36M > 85 or < 15 (trend maturity / avoid chasing)
     extremes = False
     if cot6 is not None and cot36 is not None:
         extremes = (cot6 > 85 or cot36 > 85 or cot6 < 15 or cot36 < 15)
 
-    # Conflict: bias vs sign of net% OI
     conflict = "No"
     if net_now is not None and bias != "Neutral":
         if (bias == "Shorts allowed" and net_now > 0) or (bias == "Longs allowed" and net_now < 0):
             conflict = "Yes"
 
-    # Momentum support rules
     def mom_ok_long():
         return ((d_cot6_pp is not None and d_cot6_pp >= 5)
                 or (oi_wow_pct is not None and oi_wow_pct >= 0)
@@ -115,7 +207,6 @@ def flags_and_grade(
         if supp:                   return {"extremes": "No",  "conflict": conflict, "grade": "A",  "note": "Momentum supportive"}
         return {"extremes": "No",  "conflict": conflict, "grade": "B",  "note": "Momentum not confirmed"}
 
-    # Shorts allowed
     supp = mom_ok_short()
     if extremes and not supp: return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
     if extremes:               return {"extremes": "Yes", "conflict": conflict, "grade": "B",  "note": "Extreme"}
@@ -135,16 +226,6 @@ def compute_signal_score(
     vol1h_support: bool,
     bb_confirm: bool
 ) -> Dict[str, float]:
-    """
-    Score (0–10):
-      +4 if bias allowed, else +0
-      +3 if in HTF zone (D/H4), +0.5 if 'fresh' (≤2 retests)
-      +0.75 if pivot confluence, +0.75 if fib confluence (max +1.5)
-      +2 if 15m volume spike (P95), +0.5 bonus if 1h supportive (P90)
-      +1 if Bollinger confirmation (re-entry or breakout-retest)
-      -0.5 if extremes 'Yes'
-      -0.5 if conflict 'Yes'
-    """
     score = 0.0
     if bias in ("Longs allowed", "Shorts allowed"):
         score += 4.0
@@ -185,7 +266,6 @@ def analyze_from_marketbulls_legacy(
     name: str,
     cot6: Optional[float], cot36: Optional[float],
     spec_long_pct_oi: Optional[float], spec_short_pct_oi: Optional[float],
-    # Optional current/previous for WoW
     prev_cot6: Optional[float] = None,
     prev_spec_long_pct_oi: Optional[float] = None, prev_spec_short_pct_oi: Optional[float] = None,
     oi_current: Optional[float] = None, oi_prev: Optional[float] = None,
@@ -232,15 +312,15 @@ def instrument_form(default_name: str, key: str):
         else:
             prev_cot6 = prev_long_pct = prev_short_pct = oi_prev = None
 
-        st.write("Checklist (manual confirmations; no auto-import)")
+        st.write("Checklist (manual confirmations; no auto‑import)")
         q1, q2, q3 = st.columns(3)
         in_zone  = q1.checkbox("In HTF zone (Daily/H4)", value=False, key=f"{key}_in_zone", help="Price is inside a marked Daily/H4 Supply or Demand zone.")
         fresh    = q1.checkbox("Zone fresh (≤2 retests)", value=False, key=f"{key}_fresh", help="Zone hasn’t been hit more than twice since it formed.")
         pivot_cf = q2.checkbox("Pivot confluence", value=False, key=f"{key}_pivot", help="Zone overlaps DP/R1/S1 (within ~0.15–0.20 ATR).")
         fib_cf   = q2.checkbox("Fib confluence", value=False, key=f"{key}_fib", help="At 38.2–61.8% pullback or 127–161.8% extension from last impulse.")
         vol15    = q3.checkbox("15m volume spike ≥ P95", value=False, key=f"{key}_vol15", help="Current 15m volume is in top 5% for that bucket over ~21 days (manual).")
-        vol1h    = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h", help="Sum of last 4×15m bars in top 10% for that hour-of-day (manual).")
-        bb_conf  = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb", help="Re-entry (wick back inside band) or breakout-retest hold with 20/2σ bands.")
+        vol1h    = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h", help="Sum of last 4×15m bars in top 10% for that hour‑of‑day (manual).")
+        bb_conf  = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb", help="Re‑entry (wick back inside band) or breakout‑retest hold with 20/2σ bands.")
 
         notes = st.text_area("Notes (optional)", value="", key=f"{key}_notes")
 
@@ -279,10 +359,55 @@ def analyze_if_ready(d):
         )
     return None
 
+def compute_signal_score(
+    bias: str,
+    extremes: str,
+    conflict: str,
+    in_htf_zone: bool,
+    fresh_zone: bool,
+    pivot_confluence: bool,
+    fib_confluence: bool,
+    vol15_spike: bool,
+    vol1h_support: bool,
+    bb_confirm: bool
+) -> Dict[str, float]:
+    score = 0.0
+    if bias in ("Longs allowed", "Shorts allowed"):
+        score += 4.0
+    if in_htf_zone:
+        score += 3.0
+        if fresh_zone:
+            score += 0.5
+    if pivot_confluence: score += 0.75
+    if fib_confluence:   score += 0.75
+    if vol15_spike:
+        score += 2.0
+        if vol1h_support: score += 0.5
+    if bb_confirm: score += 1.0
+    if extremes == "Yes": score -= 0.5
+    if conflict == "Yes": score -= 0.5
+    score = max(0.0, min(10.0, score))
+    tier = "A" if score >= 8.5 else ("B" if score >= 6.5 else "C")
+    return {"score": score, "tier": tier}
+
+def action_lines_from_score(direction: str, tier: str, extremes: str) -> List[str]:
+    if direction == "Long":
+        if extremes == "Yes":
+            return ["Buy pullbacks into demand/pivot clusters; avoid chasing fresh breakouts",
+                    "Require trigger (absorption/retest fail); reduce size"]
+        return ["Trade with trend; buy pullbacks or breakout‑retest holds",
+                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
+    if direction == "Short":
+        if extremes == "Yes":
+            return ["Sell rallies into supply/pivot clusters; avoid chasing fresh breakdowns",
+                    "Require trigger (rejection/retest fail); reduce size"]
+        return ["Trade with trend; short failed retests or breakdown‑retest holds",
+                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
+    return ["No directional filter; treat setups as tactical only",
+            "Demand A+ price confirmation (zone + rejection/volume)"]
+
 def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], notes: str):
-    # Direction from bias
     direction = "Long" if row["Bias"] == "Longs allowed" else ("Short" if row["Bias"] == "Shorts allowed" else "Neutral")
-    # Signal score
     sc = compute_signal_score(
         bias=row["Bias"],
         extremes=row["Extremes"],
@@ -295,7 +420,6 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
         vol1h_support=checklist["vol1h"],
         bb_confirm=checklist["bb_conf"]
     )
-    # Suggested actions
     acts = action_lines_from_score(direction, sc["tier"], row["Extremes"])
 
     with st.container(border=True):
@@ -314,7 +438,6 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
         m4.metric("OI WoW", fmt(row["OI WoW (%)"], suffix="%"))
 
         st.caption(f"Flags: Extremes={row['Extremes']}; Conflict={row['Conflict']}; {row['Note']}")
-
         st.write("• " + acts[0])
         st.write("• " + acts[1])
 
@@ -332,7 +455,6 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
             if notes:
                 st.caption(f"Notes: {notes}")
 
-    # Append extras for export
     row["Signal Score"] = sc["score"]
     row["Signal Tier"]  = sc["tier"]
     row["Direction"]    = direction
@@ -347,6 +469,30 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
         "Notes": notes,
     })
     return row
+
+# ---------- Tabs ----------
+tabs = st.tabs(["XAUUSD", "NAS100", "US30", "Custom"])
+
+with tabs[0]:
+    xau = instrument_form("XAUUSD", key="xau")
+with tabs[1]:
+    nas = instrument_form("NAS100", key="nas")
+with tabs[2]:
+    dow = instrument_form("US30", key="dow")
+with tabs[3]:
+    cname = st.text_input("Custom instrument name", value="CUSTOM", key="custom_name")
+    custom = instrument_form(cname, key="custom")
+
+# ---------- Run ----------
+def analyze_if_ready(d):
+    if d["cot6"] is not None and d["cot36"] is not None and d["long_pct"] is not None and d["short_pct"] is not None:
+        return analyze_from_marketbulls_legacy(
+            name=d["name"], cot6=d["cot6"], cot36=d["cot36"],
+            spec_long_pct_oi=d["long_pct"], spec_short_pct_oi=d["short_pct"],
+            prev_cot6=d["prev_cot6"], prev_spec_long_pct_oi=d["prev_long_pct"], prev_spec_short_pct_oi=d["prev_short_pct"],
+            oi_current=d["oi_current"], oi_prev=d["oi_prev"],
+        )
+    return None
 
 st.divider()
 st.subheader("Results")
@@ -391,18 +537,3 @@ if results:
         mime="text/csv",
         width="stretch",
     )
-
-# ---------- Help ----------
-with st.expander("How to copy numbers from MarketBulls (manual flow)"):
-    st.markdown("""
-1) Legacy → LARGE SPECULATORS:
-   - Percent of OI → Long and Short (e.g., 63.3 and 11.7)
-2) Gauges (right):
-   - COT Index 6 Month and COT Index 36 Month
-3) Optional for WoW:
-   - Previous week’s COT 6M, Long% OI, Short% OI, and Open Interest
-4) Checklist (manual confirmations):
-   - In Daily/H4 zone (fresh ≤ 2) with Pivot/Fib confluence
-   - 15m P95 spike (and optional 1h P90 support)
-   - Bollinger confirmation (re-entry or breakout-retest)
-""")
