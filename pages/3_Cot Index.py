@@ -17,8 +17,8 @@ BADGE_CSS = """
 """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
 
-st.title("COT Spec Index Analyzer + Signal Score")
-st.caption("Manual inputs (no auto-import). Use MarketBulls → Legacy → Large Speculators → Percent of OI and the 6M/36M gauges.")
+st.title("COT Spec Index Analyzer + Signal Score (Manual)")
+st.caption("Inputs from MarketBulls (Legacy → Large Speculators %OI + COT 6M/36M). Manual confirmations for zones, pivots, fibs, volume, Bollinger, regime, and risk.")
 
 # ---------- Tip (pp vs %) ----------
 with st.container(border=True):
@@ -32,7 +32,6 @@ with st.container(border=True):
 
 # ---------- Helpers ----------
 def parse_flt(s: str) -> Optional[float]:
-    """Parse text like '63.3' or '63.3%' to float. Returns None if blank."""
     if s is None: return None
     s = str(s).strip().replace("%", "")
     if s == "": return None
@@ -44,7 +43,6 @@ def fmt(x: Optional[float], nd: int = 1, suffix: str = "") -> str:
 
 def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
                   net_pct: Optional[float] = None) -> Optional[float]:
-    # Specs Net %OI = Long% - Short%
     if net_pct is not None:
         return float(net_pct)
     if long_pct is None or short_pct is None:
@@ -52,20 +50,14 @@ def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
     return float(long_pct) - float(short_pct)
 
 def wow_pp(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    # Week-over-week absolute difference in percentage points
     if current is None or previous is None: return None
     return float(current) - float(previous)
 
 def pct_change(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    # Relative percent change (for Open Interest)
     if current is None or previous is None or previous == 0: return None
     return (float(current) - float(previous)) / float(previous) * 100.0
 
 def bias_from_indices(cot6: Optional[float], cot36: Optional[float]) -> str:
-    # Specs-only, relative filter
-    # Longs allowed if 6M > 60 and 36M > 50
-    # Shorts allowed if 6M < 40 and 36M < 50
-    # Else Neutral
     if cot6 is None or cot36 is None:
         return "Neutral"
     if cot6 > 60 and cot36 > 50:
@@ -83,18 +75,15 @@ def flags_and_grade(
     net_wow_pp: Optional[float],
     net_now: Optional[float]
 ) -> Dict[str, str]:
-    # Extremes: 6M or 36M > 85 or < 15 (trend maturity / avoid chasing)
     extremes = False
     if cot6 is not None and cot36 is not None:
         extremes = (cot6 > 85 or cot36 > 85 or cot6 < 15 or cot36 < 15)
 
-    # Conflict: bias vs sign of net% OI
     conflict = "No"
     if net_now is not None and bias != "Neutral":
         if (bias == "Shorts allowed" and net_now > 0) or (bias == "Longs allowed" and net_now < 0):
             conflict = "Yes"
 
-    # Momentum support rules
     def mom_ok_long():
         return ((d_cot6_pp is not None and d_cot6_pp >= 5)
                 or (oi_wow_pct is not None and oi_wow_pct >= 0)
@@ -115,15 +104,32 @@ def flags_and_grade(
         if supp:                   return {"extremes": "No",  "conflict": conflict, "grade": "A",  "note": "Momentum supportive"}
         return {"extremes": "No",  "conflict": conflict, "grade": "B",  "note": "Momentum not confirmed"}
 
-    # Shorts allowed
     supp = mom_ok_short()
     if extremes and not supp: return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
     if extremes:               return {"extremes": "Yes", "conflict": conflict, "grade": "B",  "note": "Extreme"}
     if supp:                   return {"extremes": "No",  "conflict": conflict, "grade": "A",  "note": "Momentum supportive"}
     return {"extremes": "No",  "conflict": conflict, "grade": "B",  "note": "Momentum not confirmed"}
 
-# ---------- Signal Score ----------
-def compute_signal_score(
+# ---------- Weights (adjustable) ----------
+st.sidebar.header("Weights & Penalties")
+w_bias   = st.sidebar.slider("Weight: COT Bias (on/off)", 0.0, 6.0, 4.0, 0.25)
+w_zone   = st.sidebar.slider("Weight: In HTF zone (D/H4)", 0.0, 5.0, 3.0, 0.25)
+w_fresh  = st.sidebar.slider("Bonus: Zone fresh (≤2 retests)", 0.0, 1.5, 0.5, 0.25)
+w_conf   = st.sidebar.slider("Weight: Pivot/Fib confluence (max)", 0.0, 2.0, 1.5, 0.25)
+w_vol15  = st.sidebar.slider("Weight: 15m Volume spike (P95)", 0.0, 3.0, 2.0, 0.25)
+w_vol1h  = st.sidebar.slider("Bonus: 1h Volume support (P90)", 0.0, 1.5, 0.5, 0.25)
+w_boll   = st.sidebar.slider("Weight: Bollinger confirmation", 0.0, 2.0, 1.0, 0.25)
+w_trend  = st.sidebar.slider("Weight: Trend regime alignment", 0.0, 2.0, 1.0, 0.25)
+w_volreg = st.sidebar.slider("Weight: Volatility state helpful", 0.0, 1.5, 0.5, 0.25)
+w_sess   = st.sidebar.slider("Weight: Session context helpful", 0.0, 1.0, 0.25, 0.25)
+p_ext    = st.sidebar.slider("Penalty: Extremes (mature trend)", 0.0, 1.5, 0.5, 0.25)
+p_conf   = st.sidebar.slider("Penalty: Conflict (bias vs net%OI)", 0.0, 1.5, 0.5, 0.25)
+p_news   = st.sidebar.slider("Penalty: High-impact news soon", 0.0, 2.0, 1.0, 0.25)
+p_spread = st.sidebar.slider("Penalty: Wide spread/liquidity risk", 0.0, 2.0, 0.5, 0.25)
+
+MAX_SCORE = 10.0
+
+def compute_signal_score_and_breakdown(
     bias: str,
     extremes: str,
     conflict: str,
@@ -133,59 +139,105 @@ def compute_signal_score(
     fib_confluence: bool,
     vol15_spike: bool,
     vol1h_support: bool,
-    bb_confirm: bool
+    bb_confirm: bool,
+    trend_align: str,        # "Aligned", "Against", "Range/NA"
+    vol_state: str,          # "Expansion", "Compression/Neutral"
+    session_help: bool,      # True if London/NY open helps; else False
+    news_risk: bool,
+    spread_risk: bool
 ) -> Dict[str, float]:
-    """
-    Score (0–10):
-      +4 if bias allowed, else +0
-      +3 if in HTF zone (D/H4), +0.5 if 'fresh' (≤2 retests)
-      +0.75 if pivot confluence, +0.75 if fib confluence (max +1.5)
-      +2 if 15m volume spike (P95), +0.5 bonus if 1h supportive (P90)
-      +1 if Bollinger confirmation (re-entry or breakout-retest)
-      -0.5 if extremes 'Yes'
-      -0.5 if conflict 'Yes'
-    """
+    contrib = {}
     score = 0.0
+
+    # Bias
     if bias in ("Longs allowed", "Shorts allowed"):
-        score += 4.0
+        contrib["COT bias"] = w_bias; score += w_bias
+    else:
+        contrib["COT bias"] = 0.0
+
+    # Location
     if in_htf_zone:
-        score += 3.0
+        contrib["HTF zone"] = w_zone; score += w_zone
         if fresh_zone:
-            score += 0.5
-    if pivot_confluence: score += 0.75
-    if fib_confluence:   score += 0.75
+            contrib["Fresh zone"] = w_fresh; score += w_fresh
+        else:
+            contrib["Fresh zone"] = 0.0
+    else:
+        contrib["HTF zone"] = 0.0; contrib["Fresh zone"] = 0.0
+
+    # Confluence
+    conf_sum = 0.0
+    if pivot_confluence: conf_sum += min(w_conf/2, w_conf)  # split conf weight across pivot+fib
+    if fib_confluence:   conf_sum += min(w_conf/2, w_conf)
+    conf_sum = min(conf_sum, w_conf)
+    contrib["Pivot/Fib confluence"] = conf_sum; score += conf_sum
+
+    # Volume
     if vol15_spike:
-        score += 2.0
-        if vol1h_support: score += 0.5
-    if bb_confirm: score += 1.0
-    if extremes == "Yes": score -= 0.5
-    if conflict == "Yes": score -= 0.5
-    score = max(0.0, min(10.0, score))
+        contrib["15m volume spike"] = w_vol15; score += w_vol15
+        if vol1h_support:
+            contrib["1h volume bonus"] = w_vol1h; score += w_vol1h
+        else:
+            contrib["1h volume bonus"] = 0.0
+    else:
+        contrib["15m volume spike"] = 0.0; contrib["1h volume bonus"] = 0.0
+
+    # Bollinger
+    if bb_confirm:
+        contrib["Bollinger confirm"] = w_boll; score += w_boll
+    else:
+        contrib["Bollinger confirm"] = 0.0
+
+    # Regime
+    if trend_align == "Aligned":
+        contrib["Trend regime"] = w_trend; score += w_trend
+    elif trend_align == "Against":
+        contrib["Trend regime"] = -w_trend; score -= w_trend
+    else:
+        contrib["Trend regime"] = 0.0
+
+    if vol_state == "Expansion":
+        contrib["Volatility helpful"] = w_volreg; score += w_volreg
+    else:
+        contrib["Volatility helpful"] = 0.0
+
+    if session_help:
+        contrib["Session helpful"] = w_sess; score += w_sess
+    else:
+        contrib["Session helpful"] = 0.0
+
+    # Penalties
+    if extremes == "Yes":
+        contrib["Extreme penalty"] = -p_ext; score -= p_ext
+    else:
+        contrib["Extreme penalty"] = 0.0
+
+    if conflict == "Yes":
+        contrib["Conflict penalty"] = -p_conf; score -= p_conf
+    else:
+        contrib["Conflict penalty"] = 0.0
+
+    if news_risk:
+        contrib["News penalty"] = -p_news; score -= p_news
+    else:
+        contrib["News penalty"] = 0.0
+
+    if spread_risk:
+        contrib["Spread penalty"] = -p_spread; score -= p_spread
+    else:
+        contrib["Spread penalty"] = 0.0
+
+    # Clamp and tier
+    score = max(0.0, min(MAX_SCORE, score))
     tier = "A" if score >= 8.5 else ("B" if score >= 6.5 else "C")
-    return {"score": score, "tier": tier}
+    contrib["TOTAL"] = score
+    return {"score": score, "tier": tier, "contrib": contrib}
 
-def action_lines_from_score(direction: str, tier: str, extremes: str) -> List[str]:
-    if direction == "Long":
-        if extremes == "Yes":
-            return ["Buy pullbacks into demand/pivot clusters; avoid chasing fresh breakouts",
-                    "Require trigger (absorption/retest fail); reduce size"]
-        return ["Trade with trend; buy pullbacks or breakout‑retest holds",
-                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
-    if direction == "Short":
-        if extremes == "Yes":
-            return ["Sell rallies into supply/pivot clusters; avoid chasing fresh breakdowns",
-                    "Require trigger (rejection/retest fail); reduce size"]
-        return ["Trade with trend; short failed retests or breakdown‑retest holds",
-                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
-    return ["No directional filter; treat setups as tactical only",
-            "Demand A+ price confirmation (zone + rejection/volume)"]
-
-# ---------- Analyzer tailored to manual MarketBulls inputs ----------
+# ---------- Analyzer ----------
 def analyze_from_marketbulls_legacy(
     name: str,
     cot6: Optional[float], cot36: Optional[float],
     spec_long_pct_oi: Optional[float], spec_short_pct_oi: Optional[float],
-    # Optional current/previous for WoW
     prev_cot6: Optional[float] = None,
     prev_spec_long_pct_oi: Optional[float] = None, prev_spec_short_pct_oi: Optional[float] = None,
     oi_current: Optional[float] = None, oi_prev: Optional[float] = None,
@@ -209,7 +261,7 @@ def analyze_from_marketbulls_legacy(
         "Extremes": g["extremes"], "Conflict": g["conflict"], "Note": g["note"],
     }
 
-# ---------- Input forms (manual only) ----------
+# ---------- Input forms ----------
 def instrument_form(default_name: str, key: str):
     st.markdown(f"#### {default_name}")
     with st.container(border=True):
@@ -234,13 +286,34 @@ def instrument_form(default_name: str, key: str):
 
         st.write("Checklist (manual confirmations; no auto-import)")
         q1, q2, q3 = st.columns(3)
-        in_zone  = q1.checkbox("In HTF zone (Daily/H4)", value=False, key=f"{key}_in_zone", help="Price is inside a marked Daily/H4 Supply or Demand zone.")
-        fresh    = q1.checkbox("Zone fresh (≤2 retests)", value=False, key=f"{key}_fresh", help="Zone hasn’t been hit more than twice since it formed.")
-        pivot_cf = q2.checkbox("Pivot confluence", value=False, key=f"{key}_pivot", help="Zone overlaps DP/R1/S1 (within ~0.15–0.20 ATR).")
-        fib_cf   = q2.checkbox("Fib confluence", value=False, key=f"{key}_fib", help="At 38.2–61.8% pullback or 127–161.8% extension from last impulse.")
-        vol15    = q3.checkbox("15m volume spike ≥ P95", value=False, key=f"{key}_vol15", help="Current 15m volume is in top 5% for that bucket over ~21 days (manual).")
-        vol1h    = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h", help="Sum of last 4×15m bars in top 10% for that hour-of-day (manual).")
-        bb_conf  = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb", help="Re-entry (wick back inside band) or breakout-retest hold with 20/2σ bands.")
+        in_zone  = q1.checkbox("In HTF zone (Daily/H4)", value=False, key=f"{key}_in_zone",
+                               help="Price is inside a marked Daily/H4 Supply or Demand zone.")
+        fresh    = q1.checkbox("Zone fresh (≤2 retests)", value=False, key=f"{key}_fresh",
+                               help="Zone hasn’t been hit more than twice since it formed.")
+        pivot_cf = q2.checkbox("Pivot confluence", value=False, key=f"{key}_pivot",
+                               help="Zone overlaps DP/R1/S1 (within ~0.15–0.20 ATR).")
+        fib_cf   = q2.checkbox("Fib confluence", value=False, key=f"{key}_fib",
+                               help="At 38.2–61.8% pullback or 127–161.8% extension from last impulse.")
+        vol15    = q3.checkbox("15m volume spike ≥ P95", value=False, key=f"{key}_vol15",
+                               help="Current 15m volume is in top 5% for that bucket over ~21 days (manual).")
+        vol1h    = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h",
+                               help="Sum of last 4×15m bars in top 10% for that hour-of-day (manual).")
+        bb_conf  = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb",
+                               help="Re-entry (wick back inside band) or breakout-retest hold with 20/2σ bands.")
+
+        st.write("Regime & Risk (manual)")
+        r1, r2, r3, r4, r5 = st.columns(5)
+        trend_align = r1.selectbox("Trend regime vs intended bias",
+                                   ["Range/NA", "Aligned", "Against"], index=0,
+                                   help="Use HTF SMAs/structure: is your intended direction aligned?")
+        vol_state = r2.selectbox("Volatility state", ["Compression/Neutral", "Expansion"], index=0,
+                                 help="ATR rising or Bollinger Bandwidth expanding?")
+        session_help = r3.checkbox("Session helpful (London/NY)", value=False,
+                                   help="Session context likely to amplify your setup.")
+        news_risk = r4.checkbox("High-impact news soon (60–90m)", value=False,
+                                 help="If checked, a penalty is applied.")
+        spread_risk = r5.checkbox("Wide spread/liquidity risk", value=False,
+                                  help="Illiquid conditions penalty.")
 
         notes = st.text_area("Notes (optional)", value="", key=f"{key}_notes")
 
@@ -252,6 +325,8 @@ def instrument_form(default_name: str, key: str):
             "in_zone": in_zone, "fresh": fresh,
             "pivot_cf": pivot_cf, "fib_cf": fib_cf,
             "vol15": vol15, "vol1h": vol1h, "bb_conf": bb_conf,
+            "trend_align": trend_align, "vol_state": vol_state, "session_help": session_help,
+            "news_risk": news_risk, "spread_risk": spread_risk,
             "notes": notes,
         }
 
@@ -279,31 +354,42 @@ def analyze_if_ready(d):
         )
     return None
 
-def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], notes: str):
-    # Direction from bias
+def action_lines_from_score(direction: str, tier: str, extremes: str) -> List[str]:
+    if direction == "Long":
+        if extremes == "Yes":
+            return ["Buy pullbacks into demand/pivot clusters; avoid chasing fresh breakouts",
+                    "Require trigger (absorption/retest fail); reduce size"]
+        return ["Trade with trend; buy pullbacks or breakout‑retest holds",
+                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
+    if direction == "Short":
+        if extremes == "Yes":
+            return ["Sell rallies into supply/pivot clusters; avoid chasing fresh breakdowns",
+                    "Require trigger (rejection/retest fail); reduce size"]
+        return ["Trade with trend; short failed retests or breakdown‑retest holds",
+                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
+    return ["No directional filter; treat setups as tactical only",
+            "Demand A+ price confirmation (zone + rejection/volume)"]
+
+def render_card(row: Dict[str, Optional[float]], d: Dict[str, any]):
     direction = "Long" if row["Bias"] == "Longs allowed" else ("Short" if row["Bias"] == "Shorts allowed" else "Neutral")
-    # Signal score
-    sc = compute_signal_score(
-        bias=row["Bias"],
-        extremes=row["Extremes"],
-        conflict=row["Conflict"],
-        in_htf_zone=checklist["in_zone"],
-        fresh_zone=checklist["fresh"],
-        pivot_confluence=checklist["pivot_cf"],
-        fib_confluence=checklist["fib_cf"],
-        vol15_spike=checklist["vol15"],
-        vol1h_support=checklist["vol1h"],
-        bb_confirm=checklist["bb_conf"]
+
+    sb = compute_signal_score_and_breakdown(
+        bias=row["Bias"], extremes=row["Extremes"], conflict=row["Conflict"],
+        in_htf_zone=d["in_zone"], fresh_zone=d["fresh"],
+        pivot_confluence=d["pivot_cf"], fib_confluence=d["fib_cf"],
+        vol15_spike=d["vol15"], vol1h_support=d["vol1h"], bb_confirm=d["bb_conf"],
+        trend_align=d["trend_align"], vol_state=d["vol_state"], session_help=d["session_help"],
+        news_risk=d["news_risk"], spread_risk=d["spread_risk"]
     )
-    # Suggested actions
-    acts = action_lines_from_score(direction, sc["tier"], row["Extremes"])
+
+    acts = action_lines_from_score(direction, sb["tier"], row["Extremes"])
 
     with st.container(border=True):
         st.subheader(row["Instrument"])
         chips = [
             f'<span class="badge">Bias: {row["Bias"]}</span>',
             f'<span class="badge">Grade: {row["Grade"]}</span>',
-            f'<span class="badge">Signal Score: {sc["score"]:.1f} ({sc["tier"]})</span>',
+            f'<span class="badge">Signal Score: {sb["score"]:.1f} ({sb["tier"]})</span>',
         ]
         st.markdown(" ".join(chips), unsafe_allow_html=True)
 
@@ -318,35 +404,75 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
         st.write("• " + acts[0])
         st.write("• " + acts[1])
 
-        with st.expander("Checklist state"):
+        with st.expander("Score breakdown"):
+            # Factor contributions table
+            contrib_items = [{"Factor": k, "Points": v} for k, v in sb["contrib"].items()]
+            dfc = pd.DataFrame(contrib_items)
+            st.dataframe(dfc, hide_index=True, width="stretch")
+
+        with st.expander("Checklist state & Notes"):
             cc_df = pd.DataFrame([{
-                "In HTF zone": checklist["in_zone"],
-                "Fresh zone (≤2)": checklist["fresh"],
-                "Pivot confluence": checklist["pivot_cf"],
-                "Fib confluence": checklist["fib_cf"],
-                "15m vol spike (P95)": checklist["vol15"],
-                "1h vol supportive (P90)": checklist["vol1h"],
-                "Bollinger confirmation": checklist["bb_conf"],
+                "In HTF zone": d["in_zone"],
+                "Fresh zone (≤2)": d["fresh"],
+                "Pivot confluence": d["pivot_cf"],
+                "Fib confluence": d["fib_cf"],
+                "15m vol spike (P95)": d["vol15"],
+                "1h vol supportive (P90)": d["vol1h"],
+                "Bollinger confirmation": d["bb_conf"],
+                "Trend regime": d["trend_align"],
+                "Volatility state": d["vol_state"],
+                "Session helpful": d["session_help"],
+                "News risk": d["news_risk"],
+                "Spread risk": d["spread_risk"],
             }])
             st.dataframe(cc_df, hide_index=True, width="stretch")
-            if notes:
-                st.caption(f"Notes: {notes}")
+            if d["notes"]:
+                st.caption(f"Notes: {d['notes']}")
 
     # Append extras for export
-    row["Signal Score"] = sc["score"]
-    row["Signal Tier"]  = sc["tier"]
-    row["Direction"]    = direction
     row.update({
-        "In HTF zone": checklist["in_zone"],
-        "Fresh zone": checklist["fresh"],
-        "Pivot confluence": checklist["pivot_cf"],
-        "Fib confluence": checklist["fib_cf"],
-        "Vol15 spike": checklist["vol15"],
-        "Vol1h support": checklist["vol1h"],
-        "Bollinger confirm": checklist["bb_conf"],
-        "Notes": notes,
+        "Direction": direction,
+        "Signal Score": sb["score"],
+        "Signal Tier": sb["tier"],
+        "In HTF zone": d["in_zone"],
+        "Fresh zone": d["fresh"],
+        "Pivot confluence": d["pivot_cf"],
+        "Fib confluence": d["fib_cf"],
+        "Vol15 spike": d["vol15"],
+        "Vol1h support": d["vol1h"],
+        "Bollinger confirm": d["bb_conf"],
+        "Trend regime": d["trend_align"],
+        "Volatility state": d["vol_state"],
+        "Session helpful": d["session_help"],
+        "News risk": d["news_risk"],
+        "Spread risk": d["spread_risk"],
+        "Notes": d["notes"],
     })
     return row
+
+# ---------- Tabs ----------
+tabs = st.tabs(["XAUUSD", "NAS100", "US30", "Custom"])
+
+with tabs[0]:
+    xau = instrument_form("XAUUSD", key="xau")
+with tabs[1]:
+    nas = instrument_form("NAS100", key="nas")
+with tabs[2]:
+    dow = instrument_form("US30", key="dow")
+with tabs[3]:
+    cname = st.text_input("Custom instrument name", value="CUSTOM", key="custom_name")
+    custom = instrument_form(cname, key="custom")
+
+# ---------- Run ----------
+def analyze_if_ready(d):
+    if d["cot6"] is not None and d["cot36"] is not None and d["long_pct"] is not None and d["short_pct"] is not None:
+        return analyze_from_marketbulls_legacy(
+            name=d["name"], cot6=d["cot6"], cot36=d["cot36"],
+            spec_long_pct_oi=d["long_pct"], spec_short_pct_oi=d["short_pct"],
+            prev_cot6=d["prev_cot6"], prev_spec_long_pct_oi=d["prev_long_pct"], prev_spec_short_pct_oi=d["prev_short_pct"],
+            oi_current=d["oi_current"], oi_prev=d["oi_prev"],
+        )
+    return None
 
 st.divider()
 st.subheader("Results")
@@ -355,15 +481,7 @@ results: List[Dict[str, Optional[float]]] = []
 for d in [xau, nas, dow, custom]:
     r = analyze_if_ready(d)
     if r:
-        enriched = render_card(
-            r,
-            {
-                "in_zone": d["in_zone"], "fresh": d["fresh"],
-                "pivot_cf": d["pivot_cf"], "fib_cf": d["fib_cf"],
-                "vol15": d["vol15"], "vol1h": d["vol1h"], "bb_conf": d["bb_conf"],
-            },
-            d["notes"]
-        )
+        enriched = render_card(r, d)
         results.append(enriched)
     else:
         with st.container(border=True):
@@ -381,7 +499,8 @@ if results:
         "Extremes", "Conflict", "Note",
         "In HTF zone", "Fresh zone", "Pivot confluence", "Fib confluence",
         "Vol15 spike", "Vol1h support", "Bollinger confirm",
-        "Notes"
+        "Trend regime", "Volatility state", "Session helpful",
+        "News risk", "Spread risk", "Notes"
     ] if c in df.columns]
     df = df[order_cols]
     st.download_button(
@@ -391,18 +510,3 @@ if results:
         mime="text/csv",
         width="stretch",
     )
-
-# ---------- Help ----------
-with st.expander("How to copy numbers from MarketBulls (manual flow)"):
-    st.markdown("""
-1) Legacy → LARGE SPECULATORS:
-   - Percent of OI → Long and Short (e.g., 63.3 and 11.7)
-2) Gauges (right):
-   - COT Index 6 Month and COT Index 36 Month
-3) Optional for WoW:
-   - Previous week’s COT 6M, Long% OI, Short% OI, and Open Interest
-4) Checklist (manual confirmations):
-   - In Daily/H4 zone (fresh ≤ 2) with Pivot/Fib confluence
-   - 15m P95 spike (and optional 1h P90 support)
-   - Bollinger confirmation (re-entry or breakout-retest)
-""")
