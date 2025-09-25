@@ -20,22 +20,24 @@ st.markdown(BADGE_CSS, unsafe_allow_html=True)
 st.title("COT Spec Index Analyzer")
 st.caption("Inputs mapped to MarketBulls • Legacy → Large Speculators → Percent of OI, plus COT Index 6M/36M gauges")
 
-# ---------- pp vs % CAUTION ----------
-with st.container():
-    st.warning(
-        "Heads‑up: pp = percentage points (absolute difference), not percent change.\n"
-        "- COT 6M 62% → 67% = +5 pp (not +8.1%)\n"
-        "- Specs Net %OI 51.6% → 49.9% = −1.7 pp\n"
-        "- Open Interest WoW is expressed as percent change (e.g., +2.0%), not pp",
-        icon="⚠️"
+# ---------- Tip (pp vs %) ----------
+with st.container(border=True):
+    st.info(
+        "Tip: pp means percentage points (absolute difference), not percent change.\n"
+        "• COT 6M 62% → 67% = +5 pp (not +8.1%)\n"
+        "• Specs Net %OI 51.6% → 49.9% = −1.7 pp\n"
+        "• Open Interest WoW is a percent change (e.g., +2.0%), not pp",
+        icon="💡"
     )
 
 # ---------- Helpers ----------
 def parse_flt(s: str) -> Optional[float]:
-    """Parse user text like '63.3' or '63.3%' to float. Returns None if blank."""
-    if s is None: return None
+    """Parse text like '63.3' or '63.3%' to float. Returns None if blank."""
+    if s is None:
+        return None
     s = str(s).strip().replace("%", "")
-    if s == "": return None
+    if s == "":
+        return None
     try:
         return float(s)
     except Exception:
@@ -87,7 +89,7 @@ def flags_and_grade(
     net_wow_pp: Optional[float],
     net_now: Optional[float]
 ) -> Dict[str, str]:
-    # Extremes: 6M or 36M > 85 or < 15 (trend maturity; avoid chasing)
+    # Extremes: 6M or 36M > 85 or < 15 (trend maturity / avoid chasing)
     extremes = False
     if cot6 is not None and cot36 is not None:
         extremes = (cot6 > 85 or cot36 > 85 or cot6 < 15 or cot36 < 15)
@@ -256,12 +258,6 @@ tabs = st.tabs(["XAUUSD", "NAS100", "US30", "Custom"])
 
 with tabs[0]:
     xau = instrument_form("XAUUSD", key="xau")
-    # Example helper (optional): fill example values by clicking the button
-    if st.button("Fill XAU example from screenshot", key="xau_fill"):
-        st.session_state["xau_cot6"] = "0"
-        st.session_state["xau_cot36"] = "13.5"
-        st.session_state["xau_long_pct"] = "63.3"
-        st.session_state["xau_short_pct"] = "11.7"
 
 with tabs[1]:
     nas = instrument_form("NAS100", key="nas")
@@ -307,7 +303,7 @@ if results:
         data=df.to_csv(index=False),
         file_name="cot_spec_report.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",  # replacing deprecated use_container_width
     )
 
 # ---------- Help ----------
