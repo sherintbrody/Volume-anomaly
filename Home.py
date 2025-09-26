@@ -450,9 +450,10 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
+    # <-- replaced deprecated use_container_width with width="stretch"
     st.dataframe(
         df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         height=520,
         column_config={
@@ -472,7 +473,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         data=csv,
         file_name=f"{name}_volume_spikes.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 
 # ====== DASHBOARD EXECUTION ======
