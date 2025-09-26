@@ -115,6 +115,7 @@ def reset_if_new_day():
 # ====== SIDEBAR CONFIG ======
 st.sidebar.title("🔧 Settings")
 
+# Initialize all session state variables
 if "selected_instruments" not in st.session_state:
     st.session_state.selected_instruments = list(INSTRUMENTS.keys())
 if "refresh_minutes" not in st.session_state:
@@ -125,6 +126,8 @@ if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"  # NEW: 15 min or 4 hour
+if "skip_weekends" not in st.session_state:
+    st.session_state.skip_weekends = True  # Initialize skip_weekends
 
 # Optional: provide Telegram secrets via Streamlit Cloud
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
@@ -176,6 +179,14 @@ st.sidebar.slider(
     step=0.1,
     value=1.618,
     key="threshold_multiplier"
+)
+
+# Add toggle for skipping weekends
+st.sidebar.toggle(
+    "Skip Weekends in Average",
+    value=st.session_state.skip_weekends,
+    key="skip_weekends",
+    help="When ON, uses only trading days (Mon-Fri) for volume averages"
 )
 
 # ====== AUTO-REFRESH ======
@@ -348,25 +359,24 @@ def compute_4h_position_averages(code, skip_weekends=True):
         end_utc = min(end_ist.astimezone(UTC), now_utc)
         
         candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
-        if not candles:
-            continue
-
-        found_valid = False
-        for c in candles:
-            if not c.get("complete", True):
-                continue
-            try:
-                t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
-            except ValueError:
-                t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
-            t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            time_range = get_4h_time_range(t_ist)
-            position_volumes[time_range].append(c["volume"])
-            found_valid = True
-
-        if found_valid:
-            days_collected += 1
-
+        
+        # Only count as a trading day if we got candles
+        if candles:
+            trading_days_collected += 1
+            
+            for c in candles:
+                if not c.get("complete", True):
+                    continue
+                try:
+                    t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
+                except ValueError:
+                    t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
+                t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
+                time_range = get_4h_time_range(t_ist)
+                position_volumes[time_range].append(c["volume"])
+        
+        days_back += 1
+    
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
 def get_sentiment(candle):
@@ -506,10 +516,10 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
-    # replaced deprecated use_container_width with width="stretch"
+    # Updated to use width="100%" instead of use_container_width
     st.dataframe(
         df,
-        width="stretch",
+        width=None,  # None allows auto-sizing, or use specific pixel value
         hide_index=True,
         height=520,
         column_config={
@@ -528,8 +538,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         label="📥 Export to CSV",
         data=csv,
         file_name=f"{name}_volume_spikes.csv",
-        mime="text/csv",
-        width="stretch",
+        mime="text/csv"
     )
 
 # ====== DASHBOARD EXECUTION ======
@@ -558,6 +567,7 @@ def run_volume_check():
         now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
         tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
         comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
+        weekends_status = "OFF" if st.session_state.skip_weekends else "ON"
         st.markdown(
             f'<div class="badges">'
             f'<span class="badge">IST: {now_ist}</span>'
@@ -566,6 +576,7 @@ def run_volume_check():
             f'<span class="badge neutral">Threshold × {st.session_state.threshold_multiplier:.2f}</span>'
             f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
             f'<span class="badge {"ok" if tele_status=="ON" else "warn"}">Telegram: {tele_status}</span>'
+            f'<span class="badge {"ok" if st.session_state.skip_weekends else "warn"}">Weekends: {weekends_status}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
