@@ -34,8 +34,6 @@ BADGE_CSS = """
 }
 .badges { margin: 2px 0 12px 0; }
 .badge {
-    display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px;
-    background: var(--chip-bg); color: var(--chip-fg); margin-right:6px;
     display:inline-block;
     padding:4px 10px;
     border-radius:999px;
@@ -45,9 +43,6 @@ BADGE_CSS = """
     margin-right:6px;
     border:1px solid var(--chip-br)
 }
-.badge.neutral { background: var(--chip2-bg); color:var(--chip2-fg); border-color:var(--chip2-br); }
-.badge.ok { background: var(--ok-bg); color:var(--ok-fg); border-color:var(--ok-br); }
-.badge.warn { background: var(--warn-bg); color:var(--warn-fg); border-color:var(--warn-br); }
 .badge.neutral {
     background: var(--chip2-bg);
     color:var(--chip2-fg);
@@ -215,7 +210,7 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     now_utc = datetime.now(UTC)
     from_time = min(from_time, now_utc)
     to_time = min(to_time, now_utc)
-
+    
     params = {
         "granularity": granularity,
         "price": "M",
@@ -229,7 +224,7 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     except Exception as e:
         st.error(f"❌ Network error for {instrument_code}: {e}")
         return []
-
+    
     if resp.status_code != 200:
         st.error(f"❌ Failed to fetch {instrument_code} data: {resp.text}")
         return []
@@ -273,29 +268,21 @@ def is_weekend(date):
     return date.weekday() in [5, 6]
 
 @st.cache_data(ttl=600)
-def compute_bucket_averages(code, bucket_size_minutes, granularity):
 def compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=True):
     """Compute averages for comparison"""
     if granularity == "H4":
         # For 4H mode, use position-based averaging
-        return compute_4h_position_averages(code)
         return compute_4h_position_averages(code, skip_weekends)
     else:
         # For 15-minute mode, use time bucket averaging
-        return compute_15m_bucket_averages(code, bucket_size_minutes)
         return compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends)
 
-def compute_15m_bucket_averages(code, bucket_size_minutes):
-    """Time-bucket based averaging for 15-minute mode, using last 21 full *past* days"""
 def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
     """Time-bucket based averaging for 15-minute mode, collecting last N trading days"""
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
-
-    # ✅ Start from yesterday, go back 21 days
-    for i in range(1, 22):  # 1 = yesterday, 21 = 21 days ago
-        day_ist = today_ist - timedelta(days=i)
+    
     trading_days_collected = 0
     days_back = 1
     max_lookback = 60  # Safety limit to prevent infinite loop
@@ -310,21 +297,11 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
             
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
-
+        
         start_utc = start_ist.astimezone(UTC)
         end_utc = min(end_ist.astimezone(UTC), now_utc)
-
+        
         candles = fetch_candles(code, start_utc, end_utc, granularity="M15")
-        for c in candles:
-            if not c.get("complete", True):
-                continue  # ⛔ skip the last forming 15m of any past day (rare, but safe)
-            try:
-                t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
-            except ValueError:
-                t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
-            t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            bucket = get_time_bucket(t_ist, bucket_size_minutes)
-            bucket_volumes[bucket].append(c["volume"])
         
         # Only count as a trading day if we got candles
         if candles:
@@ -342,27 +319,38 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
                 bucket_volumes[bucket].append(c["volume"])
         
         days_back += 1
-
+    
     # Return simple averages
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
-def compute_4h_position_averages(code):
-    """Position-based averaging for 4H mode, excluding today's candles"""
 def compute_4h_position_averages(code, skip_weekends=True):
     """Position-based averaging for 4H mode, collecting last N trading days"""
     position_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
-
-    for i in range(1, 22):  # start from yesterday
-        day_ist = today_ist - timedelta(days=i)
+    
+    trading_days_collected = 0
+    days_back = 1
+    max_lookback = 60  # Safety limit
+    
+    while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
+        day_ist = today_ist - timedelta(days=days_back)
+        
+        # Skip weekends if enabled
+        if skip_weekends and is_weekend(day_ist):
+            days_back += 1
+            continue
+            
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
         
         start_utc = start_ist.astimezone(UTC)
-        end_utc = min(end_ist.astimezone(UTC), now_utc)
-        
+        end_utc = min(en
         candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
+        if not candles:
+            continue
+
+        found_valid = False
         for c in candles:
             if not c.get("complete", True):
                 continue
@@ -373,7 +361,11 @@ def compute_4h_position_averages(code, skip_weekends=True):
             t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
             time_range = get_4h_time_range(t_ist)
             position_volumes[time_range].append(c["volume"])
-    
+            found_valid = True
+
+        if found_valid:
+            days_collected += 1
+
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
 def get_sentiment(candle):
@@ -394,12 +386,12 @@ def get_spike_bar(multiplier):
 
 # ====== CORE PROCESS ======
 def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
-    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity)
+    # pass skip_weekends from the UI toggle into the cached averages calculation
+    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=st.session_state.skip_weekends)
     now_utc = datetime.now(UTC)
     is_4h_mode = (granularity == "H4")
     
     per_candle_minutes = 15 if granularity == "M15" else 240
-    # Fetch more history to fill the table comfortably
     candles_needed = 40 if granularity == "M15" else 26
     from_time = now_utc - timedelta(minutes=per_candle_minutes * candles_needed)
     
@@ -419,13 +411,10 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
         t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
         
-        # Get bucket/time range based on mode
         if is_4h_mode:
-            # For 4H mode, use the actual time range as the bucket
             bucket = get_4h_time_range(t_ist)
-            display_bucket = bucket  # Display the same time range
+            display_bucket = bucket
         else:
-            # For 15-minute mode, use time bucket
             bucket = get_time_bucket(t_ist, bucket_size_minutes)
             display_bucket = bucket
         
@@ -462,6 +451,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             "sentiment": sentiment
         }
         
+        # use a deterministic candle id (time is best)
         if c in last_two_candles and over:
             candle_id = f"{name}_{c['time']}_{round(float(c['mid']['o']), 2)}"
             if candle_id not in alerted_candles:
@@ -515,7 +505,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
-    # <-- replaced deprecated use_container_width with width="stretch"
+    # replaced deprecated use_container_width with width="stretch"
     st.dataframe(
         df,
         width="stretch",
@@ -586,10 +576,7 @@ def run_volume_check():
     col_idx = 0
     
     all_rows_have_data = False
-    trading_days_collected = 0
-    days_back = 1
-    max_lookback = 60  # Safety limit
-
+    
     for name in names:
         code = INSTRUMENTS[name]
         with cols[col_idx]:
@@ -600,9 +587,7 @@ def run_volume_check():
                     render_card(name, rows, bucket_minutes, summary, is_4h_mode)
                 else:
                     st.warning(f"No recent data for {name}")
-    while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
-        day_ist = today_ist - timedelta(days=days_back)
-
+        
         col_idx = (col_idx + 1) % len(cols)
         
         if spikes:
@@ -641,10 +626,3 @@ def run_volume_check():
 
 # ====== MAIN ======
 run_volume_check()
-        # Skip weekends if enabled
-        if skip_weekends and is_weekend(day_ist):
-            days_back += 1
-            continue
-            
-        start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
-        end_ist = IST.localize
