@@ -19,24 +19,24 @@ st.set_page_config(
 BADGE_CSS = """
 <style>
 :root {
-  --chip-bg: rgba(2,132,199,.12);
-  --chip-fg: #0284c7;
-  --chip-br: rgba(2,132,199,.25);
-  --chip2-bg: rgba(148,163,184,.12);
-  --chip2-fg: #334155;
-  --chip2-br: rgba(148,163,184,.25);
-  --ok-bg: rgba(16,185,129,.12);
-  --ok-fg: #059669;
-  --ok-br: rgba(16,185,129,.25);
-  --warn-bg: rgba(234,179,8,.12);
-  --warn-fg: #a16207;
-  --warn-br: rgba(234,179,8,.25);
+    --chip-bg: rgba(2,132,199,.12);
+    --chip-fg: #0284c7;
+    --chip-br: rgba(2,132,199,.25);
+    --chip2-bg: rgba(148,163,184,.12);
+    --chip2-fg: #334155;
+    --chip2-br: rgba(148,163,184,.25);
+    --ok-bg: rgba(16,185,129,.12);
+    --ok-fg: #059669;
+    --ok-br: rgba(16,185,129,.25);
+    --warn-bg: rgba(234,179,8,.12);
+    --warn-fg: #a16207;
+    --warn-br: rgba(234,179,8,.25);
 }
 .badges { margin: 2px 0 12px 0; }
 .badge {
-  display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px;
-  background: var(--chip-bg); color: var(--chip-fg);
-  margin-right:6px; border:1px solid var(--chip-br)
+    display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px;
+    background: var(--chip-bg); color: var(--chip-fg); margin-right:6px;
+    border:1px solid var(--chip-br)
 }
 .badge.neutral { background: var(--chip2-bg); color:var(--chip2-fg); border-color:var(--chip2-br); }
 .badge.ok { background: var(--ok-bg); color:var(--ok-fg); border-color:var(--ok-br); }
@@ -103,6 +103,8 @@ if "bucket_choice" not in st.session_state:
     st.session_state.bucket_choice = "1 hour"
 if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
+if "candle_size" not in st.session_state:
+    st.session_state.candle_size = "15 min"  # NEW: 15 min or 4 hour
 
 # Optional: provide Telegram secrets via Streamlit Cloud
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
@@ -122,12 +124,24 @@ st.sidebar.slider(
     key="refresh_minutes"
 )
 
+# NEW: Candle Size toggle
 st.sidebar.radio(
-    "🕒 Select Time Bucket",
-    ["15 min", "30 min", "1 hour"],
-    index=["15 min", "30 min", "1 hour"].index(st.session_state.bucket_choice),
-    key="bucket_choice"
+    "📏 Candle Size",
+    ["15 min", "4 hour"],
+    index=["15 min", "4 hour"].index(st.session_state.candle_size),
+    key="candle_size"
 )
+
+# Show bucket selection only for 15m mode. In 4h mode bucket is position-based.
+if st.session_state.candle_size == "15 min":
+    st.sidebar.radio(
+        "🕒 Select Time Bucket",
+        ["15 min", "30 min", "1 hour"],
+        index=["15 min", "30 min", "1 hour"].index(st.session_state.bucket_choice),
+        key="bucket_choice"
+    )
+else:
+    st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
 st.sidebar.toggle(
     "Enable Telegram Alerts",
@@ -176,9 +190,9 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     now_utc = datetime.now(UTC)
     from_time = min(from_time, now_utc)
     to_time = min(to_time, now_utc)
-
+    
     params = {
-        "granularity": granularity,  # M15 by default; keep logic same
+        "granularity": granularity,
         "price": "M",
         "from": from_time.isoformat(),
         "to": to_time.isoformat()
@@ -190,7 +204,7 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     except Exception as e:
         st.error(f"❌ Network error for {instrument_code}: {e}")
         return []
-
+    
     if resp.status_code != 200:
         st.error(f"❌ Failed to fetch {instrument_code} data: {resp.text}")
         return []
@@ -198,27 +212,66 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
 
 # ====== UTILITIES ======
 def get_time_bucket(dt_ist, bucket_size_minutes):
+    """Calculate time bucket for 15-minute mode"""
     bucket_start_minute = (dt_ist.minute // bucket_size_minutes) * bucket_size_minutes
     bucket_start = dt_ist.replace(minute=bucket_start_minute, second=0, microsecond=0)
     bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
     return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
 
+def get_4h_time_range(dt_ist):
+    """Get the actual 4-hour time range starting from the candle's opening time"""
+    # The candle's opening time is dt_ist
+    # Add 4 hours to get the end time (or 3 hours for shortened candles)
+    end_time = dt_ist + timedelta(hours=4)
+    return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
+
+def get_candle_position_in_day(dt_ist):
+    """Get the position of a 4H candle in the day (1st, 2nd, 3rd, etc.)"""
+    # Get start of day in IST
+    day_start = dt_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Calculate hours since day start
+    hours_since_start = (dt_ist - day_start).total_seconds() / 3600
+    # Each 4H candle position (0-based, then add 1 for 1-based)
+    position = int(hours_since_start // 4) + 1
+    return f"Candle #{position}"
+
+def format_bucket_label(minutes):
+    if minutes == 240:  # 4-hour mode
+        return "4 hour"
+    elif minutes % 60 == 0:
+        h = minutes // 60
+        return f"{h} hour" if h == 1 else f"{h} hours"
+    return f"{minutes} min"
+
 @st.cache_data(ttl=600)
-def compute_bucket_averages(code, bucket_size_minutes):
+def compute_bucket_averages(code, bucket_size_minutes, granularity):
+    """Compute averages for comparison"""
+    if granularity == "H4":
+        # For 4H mode, use position-based averaging
+        return compute_4h_position_averages(code)
+    else:
+        # For 15-minute mode, use time bucket averaging
+        return compute_15m_bucket_averages(code, bucket_size_minutes)
+
+def compute_15m_bucket_averages(code, bucket_size_minutes):
+    """Time-bucket based averaging for 15-minute mode, using last 21 full *past* days"""
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
-
-    for i in range(21):  # 21-day lookback
+    
+    # ✅ Start from yesterday, go back 21 days
+    for i in range(1, 22):  # 1 = yesterday, 21 = 21 days ago
         day_ist = today_ist - timedelta(days=i)
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
-
+        
         start_utc = start_ist.astimezone(UTC)
         end_utc = min(end_ist.astimezone(UTC), now_utc)
-
+        
         candles = fetch_candles(code, start_utc, end_utc, granularity="M15")
         for c in candles:
+            if not c.get("complete", True):
+                continue  # ⛔ skip the last forming 15m of any past day (rare, but safe)
             try:
                 t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
             except ValueError:
@@ -226,8 +279,37 @@ def compute_bucket_averages(code, bucket_size_minutes):
             t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
             bucket = get_time_bucket(t_ist, bucket_size_minutes)
             bucket_volumes[bucket].append(c["volume"])
-
+    
+    # Return simple averages
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
+
+def compute_4h_position_averages(code):
+    """Position-based averaging for 4H mode, excluding today's candles"""
+    position_volumes = defaultdict(list)
+    today_ist = datetime.now(IST).date()
+    now_utc = datetime.now(UTC)
+    
+    for i in range(1, 22):  # start from yesterday
+        day_ist = today_ist - timedelta(days=i)
+        start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
+        end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
+        
+        start_utc = start_ist.astimezone(UTC)
+        end_utc = min(end_ist.astimezone(UTC), now_utc)
+        
+        candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
+        for c in candles:
+            if not c.get("complete", True):
+                continue
+            try:
+                t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
+            except ValueError:
+                t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
+            t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
+            time_range = get_4h_time_range(t_ist)
+            position_volumes[time_range].append(c["volume"])
+    
+    return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
 def get_sentiment(candle):
     o = float(candle["mid"]["o"])
@@ -246,42 +328,55 @@ def get_spike_bar(multiplier):
     return pad_display(bar_str, 5)
 
 # ====== CORE PROCESS ======
-def process_instrument(name, code, bucket_size_minutes, alerted_candles):
-    bucket_avg = compute_bucket_averages(code, bucket_size_minutes)
+def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
+    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity)
     now_utc = datetime.now(UTC)
-    from_time = now_utc - timedelta(minutes=15 * 30)  # fetch enough history
-    candles = fetch_candles(code, from_time, now_utc, granularity="M15")
+    is_4h_mode = (granularity == "H4")
+    
+    per_candle_minutes = 15 if granularity == "M15" else 240
+    # Fetch more history to fill the table comfortably
+    candles_needed = 40 if granularity == "M15" else 26
+    from_time = now_utc - timedelta(minutes=per_candle_minutes * candles_needed)
+    
+    candles = fetch_candles(code, from_time, now_utc, granularity=granularity)
     if not candles:
         return [], [], {}
-
+    
     rows = []
     spikes_last_two = []
     last_two_candles = candles[-2:] if len(candles) >= 2 else candles
     last_summary = {}
-
+    
     for c in candles:
         try:
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
         except ValueError:
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
         t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-
-        bucket = get_time_bucket(t_ist, bucket_size_minutes)
+        
+        # Get bucket/time range based on mode
+        if is_4h_mode:
+            # For 4H mode, use the actual time range as the bucket
+            bucket = get_4h_time_range(t_ist)
+            display_bucket = bucket  # Display the same time range
+        else:
+            # For 15-minute mode, use time bucket
+            bucket = get_time_bucket(t_ist, bucket_size_minutes)
+            display_bucket = bucket
+        
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
         threshold_multiplier = st.session_state.threshold_multiplier
         threshold = avg * threshold_multiplier if avg else 0
         over = (threshold > 0 and vol > threshold)
         mult = (vol / threshold) if over and threshold > 0 else (vol / avg if avg else 0)
-
+        
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
-        # strength column removed
-
         sentiment = get_sentiment(c)
-
+        
         rows.append([
             t_ist.strftime("%Y-%m-%d %I:%M %p"),
-            bucket,
+            display_bucket,
             f"{float(c['mid']['o']):.1f}",
             f"{float(c['mid']['h']):.1f}",
             f"{float(c['mid']['l']):.1f}",
@@ -290,7 +385,7 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             spike_diff,
             sentiment
         ])
-
+        
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
             "bucket": bucket,
@@ -301,7 +396,7 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
             "over": over,
             "sentiment": sentiment
         }
-
+        
         if c in last_two_candles and over:
             candle_id = f"{name}_{c['time']}_{round(float(c['mid']['o']), 2)}"
             if candle_id not in alerted_candles:
@@ -309,36 +404,52 @@ def process_instrument(name, code, bucket_size_minutes, alerted_candles):
                     f"{name} {t_ist.strftime('%I:%M %p')} — Vol {vol} ({spike_diff}) {sentiment}"
                 )
                 alerted_candles.add(candle_id)
-
+    
     return rows, spikes_last_two, last_summary
 
 # ====== TABLE RENDERING ======
-def render_card(name, rows, bucket_minutes, summary):
+def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     st.markdown(f"### {name}", help="Instrument")
-
+    
+    if is_4h_mode:
+        bucket_lbl = "Time Range"
+        comparison_label = "4 Hour Mode"
+    else:
+        bucket_lbl = format_bucket_label(bucket_minutes)
+        comparison_label = f"Bucket: {bucket_lbl}"
+    
     if summary:
         chips = [
-            f'<span class="badge neutral">Bucket: {bucket_minutes}m</span>',
+            f'<span class="badge neutral">{comparison_label}</span>',
             f'<span class="badge neutral">Last: {summary["time"]}</span>',
             f'<span class="badge {"ok" if summary["over"] else "neutral"}">Spike: {"Yes" if summary["over"] else "No"}</span>',
         ]
         st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
-
+        
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric("Bucket Avg", f"{summary['avg']:.0f}")
+        c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
-
-    columns = [
-        "Time (IST)",
-        f"Time Bucket ({bucket_minutes} min)",
-        "Open", "High", "Low", "Close",
-        "Volume", "Spike Δ", "Sentiment"
-    ]
+    
+    if is_4h_mode:
+        columns = [
+            "Time (IST)",
+            "Time Range (4H)",
+            "Open", "High", "Low", "Close",
+            "Volume", "Spike Δ", "Sentiment"
+        ]
+    else:
+        columns = [
+            "Time (IST)",
+            f"Time Bucket ({bucket_lbl})",
+            "Open", "High", "Low", "Close",
+            "Volume", "Spike Δ", "Sentiment"
+        ]
+    
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
-
+    
     st.dataframe(
         df,
         use_container_width=True,
@@ -354,7 +465,7 @@ def render_card(name, rows, bucket_minutes, summary):
             "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
         },
     )
-
+    
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 Export to CSV",
@@ -369,22 +480,32 @@ def run_volume_check():
     reset_if_new_day()
     alerted_candles = load_alerted_candles()
     all_spike_msgs = []
-
+    
     if not st.session_state.selected_instruments:
         st.warning("⚠️ No instruments selected. Please choose at least one.")
         return
-
-    bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
-
+    
+    # NEW: derive granularity + bucket from Candle Size toggle
+    if st.session_state.candle_size == "4 hour":
+        granularity = "H4"
+        bucket_minutes = 240
+        is_4h_mode = True
+    else:
+        granularity = "M15"
+        bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
+        is_4h_mode = False
+    
     top_l, top_r = st.columns([3, 2])
     with top_l:
         st.subheader("📊 Volume Anomaly Detector")
         now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
         tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
+        comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
         st.markdown(
             f'<div class="badges">'
             f'<span class="badge">IST: {now_ist}</span>'
-            f'<span class="badge neutral">Bucket: {bucket_minutes}m</span>'
+            f'<span class="badge neutral">Candle: {"4h" if granularity=="H4" else "15m"}</span>'
+            f'<span class="badge neutral">{comparison_type}</span>'
             f'<span class="badge neutral">Threshold × {st.session_state.threshold_multiplier:.2f}</span>'
             f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
             f'<span class="badge {"ok" if tele_status=="ON" else "warn"}">Telegram: {tele_status}</span>'
@@ -393,29 +514,29 @@ def run_volume_check():
         )
     with top_r:
         st.info("Tip: Turn on Telegram alerts in the sidebar to receive spike notifications.")
-
+    
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
     col_idx = 0
-
+    
     all_rows_have_data = False
-
+    
     for name in names:
         code = INSTRUMENTS[name]
         with cols[col_idx]:
             with st.container(border=True):
-                rows, spikes, summary = process_instrument(name, code, bucket_minutes, alerted_candles)
+                rows, spikes, summary = process_instrument(name, code, bucket_minutes, granularity, alerted_candles)
                 if rows:
                     all_rows_have_data = True
-                    render_card(name, rows, bucket_minutes, summary)
+                    render_card(name, rows, bucket_minutes, summary, is_4h_mode)
                 else:
                     st.warning(f"No recent data for {name}")
-
+        
         col_idx = (col_idx + 1) % len(cols)
-
+        
         if spikes:
             all_spike_msgs.extend(spikes)
-
+    
     if all_spike_msgs:
         formatted_msgs = []
         for raw in all_spike_msgs:
@@ -436,14 +557,15 @@ def run_volume_check():
                 )
             except:
                 formatted_msgs.append(raw)
-
-        alert_msg = f"⚡ Volume Spike Alert — {bucket_minutes} min bucket\n\n" + "\n\n".join(formatted_msgs)
+        
+        comparison_label = "4H time range" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
+        alert_msg = f"⚡ Volume Spike Alert — {comparison_label}\n\n" + "\n\n".join(formatted_msgs)
         print(alert_msg)
         send_telegram_alert(alert_msg)
     else:
         if all_rows_have_data:
             st.info("ℹ️ No spikes in the last two candles.")
-
+    
     save_alerted_candles(alerted_candles)
 
 # ====== MAIN ======
