@@ -218,6 +218,13 @@ def get_time_bucket(dt_ist, bucket_size_minutes):
     bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
     return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
 
+def get_4h_time_range(dt_ist):
+    """Get the actual 4-hour time range starting from the candle's opening time"""
+    # The candle's opening time is dt_ist
+    # Add 4 hours to get the end time (or 3 hours for shortened candles)
+    end_time = dt_ist + timedelta(hours=4)
+    return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
+
 def get_candle_position_in_day(dt_ist):
     """Get the position of a 4H candle in the day (1st, 2nd, 3rd, etc.)"""
     # Get start of day in IST
@@ -230,7 +237,7 @@ def get_candle_position_in_day(dt_ist):
 
 def format_bucket_label(minutes):
     if minutes == 240:  # 4-hour mode
-        return "Position"
+        return "4 hour"
     elif minutes % 60 == 0:
         h = minutes // 60
         return f"{h} hour" if h == 1 else f"{h} hours"
@@ -275,7 +282,7 @@ def compute_15m_bucket_averages(code, bucket_size_minutes):
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
 def compute_4h_position_averages(code):
-    """Position-based averaging for 4H candles"""
+    """Position-based averaging for 4H candles - using actual time ranges as keys"""
     position_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
@@ -297,8 +304,9 @@ def compute_4h_position_averages(code):
             except ValueError:
                 t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
             t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            position = get_candle_position_in_day(t_ist)
-            position_volumes[position].append(c["volume"])
+            # Use the actual time range as the key for averaging
+            time_range = get_4h_time_range(t_ist)
+            position_volumes[time_range].append(c["volume"])
     
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
@@ -345,13 +353,15 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
         t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
         
-        # Get bucket/position based on mode
+        # Get bucket/time range based on mode
         if is_4h_mode:
-            bucket = get_candle_position_in_day(t_ist)
-            time_range = f"{t_ist.strftime('%I:%M %p')}–{(t_ist + timedelta(hours=4)).strftime('%I:%M %p')}"
+            # For 4H mode, use the actual time range as the bucket
+            bucket = get_4h_time_range(t_ist)
+            display_bucket = bucket  # Display the same time range
         else:
+            # For 15-minute mode, use time bucket
             bucket = get_time_bucket(t_ist, bucket_size_minutes)
-            time_range = bucket
+            display_bucket = bucket
         
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
@@ -365,7 +375,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         
         rows.append([
             t_ist.strftime("%Y-%m-%d %I:%M %p"),
-            bucket if not is_4h_mode else time_range,
+            display_bucket,
             f"{float(c['mid']['o']):.1f}",
             f"{float(c['mid']['h']):.1f}",
             f"{float(c['mid']['l']):.1f}",
@@ -401,8 +411,8 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     st.markdown(f"### {name}", help="Instrument")
     
     if is_4h_mode:
-        bucket_lbl = "4 hour"
-        comparison_label = "Position"
+        bucket_lbl = "Time Range"
+        comparison_label = "4 Hour Mode"
     else:
         bucket_lbl = format_bucket_label(bucket_minutes)
         comparison_label = f"Bucket: {bucket_lbl}"
@@ -417,14 +427,14 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric(f"{'Position' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
+        c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
     
     if is_4h_mode:
         columns = [
             "Time (IST)",
-            "Time Range",
+            "Time Range (4H)",
             "Open", "High", "Low", "Close",
             "Volume", "Spike Δ", "Sentiment"
         ]
@@ -489,7 +499,7 @@ def run_volume_check():
         st.subheader("📊 Volume Anomaly Detector")
         now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
         tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
-        comparison_type = "Position" if is_4h_mode else f"Bucket: {bucket_minutes}m"
+        comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
         st.markdown(
             f'<div class="badges">'
             f'<span class="badge">IST: {now_ist}</span>'
@@ -547,7 +557,7 @@ def run_volume_check():
             except:
                 formatted_msgs.append(raw)
         
-        comparison_label = "position" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
+        comparison_label = "4H time range" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
         alert_msg = f"⚡ Volume Spike Alert — {comparison_label}\n\n" + "\n\n".join(formatted_msgs)
         print(alert_msg)
         send_telegram_alert(alert_msg)
