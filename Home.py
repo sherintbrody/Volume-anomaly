@@ -516,10 +516,10 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
-    # Updated to use width="100%" instead of use_container_width
+    # Updated to use width="stretch" instead of use_container_width
     st.dataframe(
         df,
-        width=None,  # None allows auto-sizing, or use specific pixel value
+        width="stretch",  # Changed from width=None to width="stretch"
         hide_index=True,
         height=520,
         column_config={
