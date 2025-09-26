@@ -211,11 +211,22 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     return resp.json().get("candles", [])
 
 # ====== UTILITIES ======
-def get_time_bucket(dt_ist, bucket_size_minutes):
-    bucket_start_minute = (dt_ist.minute // bucket_size_minutes) * bucket_size_minutes
-    bucket_start = dt_ist.replace(minute=bucket_start_minute, second=0, microsecond=0)
-    bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
-    return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
+def get_time_bucket(dt_ist, bucket_size_minutes, is_4h_mode=False):
+    """Calculate time bucket for a given timestamp"""
+    if is_4h_mode:
+        # For 4-hour mode, align to 4-hour boundaries
+        # 4-hour slots in IST: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
+        hour = dt_ist.hour
+        bucket_start_hour = (hour // 4) * 4
+        bucket_start = dt_ist.replace(hour=bucket_start_hour, minute=0, second=0, microsecond=0)
+        bucket_end = bucket_start + timedelta(hours=4)
+        return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
+    else:
+        # Original logic for 15-minute mode
+        bucket_start_minute = (dt_ist.minute // bucket_size_minutes) * bucket_size_minutes
+        bucket_start = dt_ist.replace(minute=bucket_start_minute, second=0, microsecond=0)
+        bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
+        return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
 
 def format_bucket_label(minutes):
     if minutes % 60 == 0:
@@ -228,6 +239,7 @@ def compute_bucket_averages(code, bucket_size_minutes, granularity):
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
+    is_4h_mode = (granularity == "H4")
     
     for i in range(21):  # 21-day lookback
         day_ist = today_ist - timedelta(days=i)
@@ -246,7 +258,7 @@ def compute_bucket_averages(code, bucket_size_minutes, granularity):
             except ValueError:
                 t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
             t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            bucket = get_time_bucket(t_ist, bucket_size_minutes)
+            bucket = get_time_bucket(t_ist, bucket_size_minutes, is_4h_mode)
             bucket_volumes[bucket].append(c["volume"])
     
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
@@ -271,6 +283,7 @@ def get_spike_bar(multiplier):
 def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity)
     now_utc = datetime.now(UTC)
+    is_4h_mode = (granularity == "H4")
     
     per_candle_minutes = 15 if granularity == "M15" else 240
     # Fetch more history to fill the table comfortably
@@ -293,7 +306,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
         t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
         
-        bucket = get_time_bucket(t_ist, bucket_size_minutes)
+        bucket = get_time_bucket(t_ist, bucket_size_minutes, is_4h_mode)
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
         threshold_multiplier = st.session_state.threshold_multiplier
