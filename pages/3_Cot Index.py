@@ -124,14 +124,24 @@ st.info(
 
 # ---------- Helpers ----------
 def parse_flt(s: str) -> Optional[float]:
-    if s is None: return None
+    if s is None:
+        return None
     s = str(s).strip().replace("%", "")
-    if s == "": return None
-    try: return float(s)
-    except Exception: return None
+    if s == "":
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
 
 def fmt(x: Optional[float], nd: int = 1, suffix: str = "") -> str:
     return "n/a" if x is None else f"{x:.{nd}f}{suffix}"
+
+def fmt_delta_pp(x: Optional[float]) -> Optional[str]:
+    return None if x is None else f"{x:.1f} pp"
+
+def fmt_delta_pct(x: Optional[float]) -> Optional[str]:
+    return None if x is None else f"{x:.1f}%"
 
 def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
                   net_pct: Optional[float] = None) -> Optional[float]:
@@ -142,11 +152,13 @@ def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
     return float(long_pct) - float(short_pct)
 
 def wow_pp(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    if current is None or previous is None: return None
+    if current is None or previous is None:
+        return None
     return float(current) - float(previous)
 
 def pct_change(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    if current is None or previous is None or previous == 0: return None
+    if current is None or previous is None or previous == 0:
+        return None
     return (float(current) - float(previous)) / float(previous) * 100.0
 
 def bias_from_indices(cot6: Optional[float], cot36: Optional[float]) -> str:
@@ -191,16 +203,22 @@ def flags_and_grade(
 
     if bias == "Longs allowed":
         supp = mom_ok_long()
-        if extremes and not supp: return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
-        if extremes:               return {"extremes": "Yes", "conflict": conflict, "grade": "B",  "note": "Extreme"}
-        if supp:                   return {"extremes": "No",  "conflict": conflict, "grade": "A",  "note": "Momentum supportive"}
-        return {"extremes": "No",  "conflict": conflict, "grade": "B",  "note": "Momentum not confirmed"}
+        if extremes and not supp:
+            return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
+        if extremes:
+            return {"extremes": "Yes", "conflict": conflict, "grade": "B", "note": "Extreme"}
+        if supp:
+            return {"extremes": "No", "conflict": conflict, "grade": "A", "note": "Momentum supportive"}
+        return {"extremes": "No", "conflict": conflict, "grade": "B", "note": "Momentum not confirmed"}
 
     supp = mom_ok_short()
-    if extremes and not supp: return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
-    if extremes:               return {"extremes": "Yes", "conflict": conflict, "grade": "B",  "note": "Extreme"}
-    if supp:                   return {"extremes": "No",  "conflict": conflict, "grade": "A",  "note": "Momentum supportive"}
-    return {"extremes": "No",  "conflict": conflict, "grade": "B",  "note": "Momentum not confirmed"}
+    if extremes and not supp:
+        return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
+    if extremes:
+        return {"extremes": "Yes", "conflict": conflict, "grade": "B", "note": "Extreme"}
+    if supp:
+        return {"extremes": "No", "conflict": conflict, "grade": "A", "note": "Momentum supportive"}
+    return {"extremes": "No", "conflict": conflict, "grade": "B", "note": "Momentum not confirmed"}
 
 # ---------- Signal Score ----------
 def compute_signal_score(
@@ -222,14 +240,20 @@ def compute_signal_score(
         score += 3.0
         if fresh_zone:
             score += 0.5
-    if pivot_confluence: score += 0.75
-    if fib_confluence:   score += 0.75
+    if pivot_confluence:
+        score += 0.75
+    if fib_confluence:
+        score += 0.75
     if vol15_spike:
         score += 2.0
-        if vol1h_support: score += 0.5
-    if bb_confirm: score += 1.0
-    if extremes == "Yes": score -= 0.5
-    if conflict == "Yes": score -= 0.5
+        if vol1h_support:
+            score += 0.5
+    if bb_confirm:
+        score += 1.0
+    if extremes == "Yes":
+        score -= 0.5
+    if conflict == "Yes":
+        score -= 0.5
     score = max(0.0, min(10.0, score))
     tier = "A" if score >= 8.5 else ("B" if score >= 6.5 else "C")
     return {"score": score, "tier": tier}
@@ -240,13 +264,13 @@ def action_lines_from_score(direction: str, tier: str, extremes: str) -> List[st
             return ["Buy pullbacks into demand/pivot clusters; avoid chasing fresh breakouts",
                     "Require trigger (absorption/retest fail); reduce size"]
         return ["Trade with trend; buy pullbacks or breakout‑retest holds",
-                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
+                "Normal size if spreads/news OK" if tier in ("A", "B") else "Tactical only; smaller size"]
     if direction == "Short":
         if extremes == "Yes":
             return ["Sell rallies into supply/pivot clusters; avoid chasing fresh breakdowns",
                     "Require trigger (rejection/retest fail); reduce size"]
         return ["Trade with trend; short failed retests or breakdown‑retest holds",
-                "Normal size if spreads/news OK" if tier in ("A","B") else "Tactical only; smaller size"]
+                "Normal size if spreads/news OK" if tier in ("A", "B") else "Tactical only; smaller size"]
     return ["No directional filter; treat setups as tactical only",
             "Demand A+ price confirmation (zone + rejection/volume)"]
 
@@ -283,7 +307,7 @@ def instrument_form(default_name: str, key: str):
     st.markdown(f"#### {default_name}")
     with st.container():
         st.write("Current week (MarketBulls → Legacy → Large Speculators)")
-        c1, c2, c3, c4, c5 = st.columns([1,1,1,1,1])
+        c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
         cot6 = parse_flt(c1.text_input("COT Index 6M", value="", key=f"{key}_cot6"))
         cot36 = parse_flt(c2.text_input("COT Index 36M", value="", key=f"{key}_cot36"))
         long_pct = parse_flt(c3.text_input("Specs Long %OI", value="", key=f"{key}_long_pct"))
@@ -303,13 +327,13 @@ def instrument_form(default_name: str, key: str):
 
         st.write("Checklist (manual confirmations; no auto‑import)")
         q1, q2, q3 = st.columns(3)
-        in_zone  = q1.checkbox("In HTF zone (Daily/H4)", value=False, key=f"{key}_in_zone", help="Price is inside a marked Daily/H4 Supply or Demand zone.")
-        fresh    = q1.checkbox("Zone fresh (≤2 retests)", value=False, key=f"{key}_fresh", help="Zone hasn’t been hit more than twice since it formed.")
+        in_zone = q1.checkbox("In HTF zone (Daily/H4)", value=False, key=f"{key}_in_zone", help="Price is inside a marked Daily/H4 Supply or Demand zone.")
+        fresh = q1.checkbox("Zone fresh (≤2 retests)", value=False, key=f"{key}_fresh", help="Zone hasn’t been hit more than twice since it formed.")
         pivot_cf = q2.checkbox("Pivot confluence", value=False, key=f"{key}_pivot_cf", help="Zone overlaps DP/R1/S1 (within ~0.15–0.20 ATR).")
-        fib_cf   = q2.checkbox("Fib confluence", value=False, key=f"{key}_fib_cf", help="At 38.2–61.8% pullback or 127–161.8% extension from last impulse.")
-        vol15    = q3.checkbox("15m volume spike ≥ P95", value=False, key=f"{key}_vol15", help="Current 15m volume is in top 5% for that bucket over ~21 days (manual).")
-        vol1h    = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h", help="Sum of last 4×15m bars in top 10% for that hour‑of‑day (manual).")
-        bb_conf  = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb_conf", help="Re‑entry (wick back inside band) or breakout‑retest hold with 20/2σ bands.")
+        fib_cf = q2.checkbox("Fib confluence", value=False, key=f"{key}_fib_cf", help="At 38.2–61.8% pullback or 127–161.8% extension from last impulse.")
+        vol15 = q3.checkbox("15m volume spike ≥ P95", value=False, key=f"{key}_vol15", help="Current 15m volume is in top 5% for that bucket over ~21 days (manual).")
+        vol1h = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h", help="Sum of last 4×15m bars in top 10% for that hour‑of‑day (manual).")
+        bb_conf = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb_conf", help="Re‑entry (wick back inside band) or breakout‑retest hold with 20/2σ bands.")
 
         notes = st.text_area("Notes (optional)", value="", key=f"{key}_notes")
 
@@ -334,7 +358,7 @@ with tabs[1]:
 with tabs[2]:
     dow = instrument_form("US30", key="dow")
 with tabs[3]:
-    cname = st.text_input("Custom instrument name", value="CUSTOM", key="custom_name")
+    cname = st.text_input("Custom instrument name", value="CUSTOM", key="custom_name_input")
     custom = instrument_form(cname, key="custom")
 
 # ---------- Render card ----------
@@ -364,10 +388,10 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
         st.markdown(" ".join(chips), unsafe_allow_html=True)
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("COT 6M", fmt(row["COT 6M"]), delta=fmt(row.get("COT 6M WoW (pp)"), nd=1) + (" pp" if row.get("COT 6M WoW (pp)") is not None else ""))
+        m1.metric("COT 6M", fmt(row["COT 6M"]), delta=fmt_delta_pp(row.get("COT 6M WoW (pp)")))
         m2.metric("COT 36M", fmt(row["COT 36M"]))
-        m3.metric("Specs Net %OI", fmt(row["Specs Net %OI"]), delta=fmt(row.get("Specs Net %OI WoW (pp)"), nd=1) + (" pp" if row.get("Specs Net %OI WoW (pp)") is not None else ""))
-        m4.metric("OI WoW", fmt(row.get("OI WoW (%)"), nd=1) + ("% " if row.get("OI WoW (%)") is not None else ""))
+        m3.metric("Specs Net %OI", fmt(row["Specs Net %OI"]), delta=fmt_delta_pp(row.get("Specs Net %OI WoW (pp)")))
+        m4.metric("OI WoW", fmt(row.get("OI WoW (%)")), delta=fmt_delta_pct(row.get("OI WoW (%)")))
 
         st.caption(f"Flags: Extremes={row['Extremes']}; Conflict={row['Conflict']}; {row['Note']}")
         st.write("• " + acts[0])
@@ -383,13 +407,14 @@ def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], not
                 "1h vol supportive (P90)": checklist["vol1h"],
                 "Bollinger confirmation": checklist["bb_conf"],
             }])
-            st.dataframe(cc_df, hide_index=True, width="100%")
+            # use width='stretch' (replaces deprecated use_container_width=True)
+            st.dataframe(cc_df, hide_index=True, width="stretch")
             if notes:
                 st.caption(f"Notes: {notes}")
 
     row["Signal Score"] = sc["score"]
-    row["Signal Tier"]  = sc["tier"]
-    row["Direction"]    = direction
+    row["Signal Tier"] = sc["tier"]
+    row["Direction"] = direction
     row.update({
         "In HTF zone": checklist["in_zone"],
         "Fresh zone": checklist["fresh"],
