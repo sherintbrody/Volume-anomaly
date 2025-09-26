@@ -254,12 +254,13 @@ def compute_bucket_averages(code, bucket_size_minutes, granularity):
         return compute_15m_bucket_averages(code, bucket_size_minutes)
 
 def compute_15m_bucket_averages(code, bucket_size_minutes):
-    """Original time-bucket based averaging for 15-minute mode"""
+    """Time-bucket based averaging for 15-minute mode, using last 21 full *past* days"""
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
     
-    for i in range(21):  # 21-day lookback
+    # ✅ Start from yesterday, go back 21 days
+    for i in range(1, 22):  # 1 = yesterday, 21 = 21 days ago
         day_ist = today_ist - timedelta(days=i)
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
@@ -270,7 +271,7 @@ def compute_15m_bucket_averages(code, bucket_size_minutes):
         candles = fetch_candles(code, start_utc, end_utc, granularity="M15")
         for c in candles:
             if not c.get("complete", True):
-                continue
+                continue  # ⛔ skip the last forming 15m of any past day (rare, but safe)
             try:
                 t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
             except ValueError:
@@ -279,15 +280,16 @@ def compute_15m_bucket_averages(code, bucket_size_minutes):
             bucket = get_time_bucket(t_ist, bucket_size_minutes)
             bucket_volumes[bucket].append(c["volume"])
     
+    # Return simple averages
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
 def compute_4h_position_averages(code):
-    """Position-based averaging for 4H candles - using actual time ranges as keys"""
+    """Position-based averaging for 4H mode, excluding today's candles"""
     position_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
     
-    for i in range(21):  # 21-day lookback
+    for i in range(1, 22):  # start from yesterday
         day_ist = today_ist - timedelta(days=i)
         start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
@@ -304,7 +306,6 @@ def compute_4h_position_averages(code):
             except ValueError:
                 t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
             t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            # Use the actual time range as the key for averaging
             time_range = get_4h_time_range(t_ist)
             position_volumes[time_range].append(c["volume"])
     
