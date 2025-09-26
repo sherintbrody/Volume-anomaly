@@ -345,7 +345,8 @@ def compute_4h_position_averages(code, skip_weekends=True):
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
         
         start_utc = start_ist.astimezone(UTC)
-        end_utc = min(en
+        end_utc = min(end_ist.astimezone(UTC), now_utc)
+        
         candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
         if not candles:
             continue
