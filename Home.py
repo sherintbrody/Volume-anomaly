@@ -1,3 +1,5 @@
+
+
 import requests, json, os
 import streamlit as st
 from datetime import datetime, timedelta, time
@@ -64,6 +66,7 @@ BADGE_CSS = """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
 
 # ====== CONFIG ======
+# IMPORTANT: Move these to environment variables or .streamlit/secrets.toml
 API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
 ACCOUNT_ID = "101-004-37091392-001"
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
@@ -125,9 +128,9 @@ if "bucket_choice" not in st.session_state:
 if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
 if "candle_size" not in st.session_state:
-    st.session_state.candle_size = "15 min"  # NEW: 15 min or 4 hour
+    st.session_state.candle_size = "15 min"
 if "skip_weekends" not in st.session_state:
-    st.session_state.skip_weekends = True  # Initialize skip_weekends
+    st.session_state.skip_weekends = True
 
 # Optional: provide Telegram secrets via Streamlit Cloud
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
@@ -147,7 +150,6 @@ st.sidebar.slider(
     key="refresh_minutes"
 )
 
-# NEW: Candle Size toggle
 st.sidebar.radio(
     "📏 Candle Size",
     ["15 min", "4 hour"],
@@ -155,7 +157,6 @@ st.sidebar.radio(
     key="candle_size"
 )
 
-# Show bucket selection only for 15m mode. In 4h mode bucket is position-based.
 if st.session_state.candle_size == "15 min":
     st.sidebar.radio(
         "🕒 Select Time Bucket",
@@ -181,7 +182,6 @@ st.sidebar.slider(
     key="threshold_multiplier"
 )
 
-# Add toggle for skipping weekends
 st.sidebar.toggle(
     "Skip Weekends in Average",
     value=st.session_state.skip_weekends,
@@ -251,23 +251,18 @@ def get_time_bucket(dt_ist, bucket_size_minutes):
 
 def get_4h_time_range(dt_ist):
     """Get the actual 4-hour time range starting from the candle's opening time"""
-    # The candle's opening time is dt_ist
-    # Add 4 hours to get the end time (or 3 hours for shortened candles)
     end_time = dt_ist + timedelta(hours=4)
     return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
 
 def get_candle_position_in_day(dt_ist):
     """Get the position of a 4H candle in the day (1st, 2nd, 3rd, etc.)"""
-    # Get start of day in IST
     day_start = dt_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Calculate hours since day start
     hours_since_start = (dt_ist - day_start).total_seconds() / 3600
-    # Each 4H candle position (0-based, then add 1 for 1-based)
     position = int(hours_since_start // 4) + 1
     return f"Candle #{position}"
 
 def format_bucket_label(minutes):
-    if minutes == 240:  # 4-hour mode
+    if minutes == 240:
         return "4 hour"
     elif minutes % 60 == 0:
         h = minutes // 60
@@ -278,14 +273,52 @@ def is_weekend(date):
     """Check if a date is Saturday (5) or Sunday (6)"""
     return date.weekday() in [5, 6]
 
+def get_sentiment(candle):
+    o = float(candle["mid"]["o"])
+    c = float(candle["mid"]["c"])
+    return "🟩" if c > o else "🟥" if c < o else "▪️"
+
+def get_body_percentage(candle):
+    """Calculate the body percentage of a candle (4H only)"""
+    try:
+        o = float(candle["mid"]["o"])
+        h = float(candle["mid"]["h"])
+        l = float(candle["mid"]["l"])
+        c = float(candle["mid"]["c"])
+        
+        # Calculate body and total range
+        body = abs(c - o)
+        total_range = h - l
+        
+        # Avoid division by zero
+        if total_range == 0:
+            return "0.0%"
+        
+        # Calculate body percentage
+        body_pct = (body / total_range) * 100
+        
+        # Return formatted percentage
+        return f"{body_pct:.1f}%"
+    except:
+        return "—"
+
+def pad_display(s, width):
+    pad_len = width - sum(wcwidth.wcwidth(ch) for ch in s)
+    return s + " " * max(pad_len, 0)
+
+def get_spike_bar(multiplier):
+    if multiplier < 1.2:
+        return pad_display("", 5)
+    bars = int((multiplier - 1.2) * 5)
+    bar_str = "┃" * max(1, min(bars, 5))
+    return pad_display(bar_str, 5)
+
 @st.cache_data(ttl=600)
 def compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=True):
     """Compute averages for comparison"""
     if granularity == "H4":
-        # For 4H mode, use position-based averaging
         return compute_4h_position_averages(code, skip_weekends)
     else:
-        # For 15-minute mode, use time bucket averaging
         return compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends)
 
 def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
@@ -296,12 +329,11 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
     
     trading_days_collected = 0
     days_back = 1
-    max_lookback = 60  # Safety limit to prevent infinite loop
+    max_lookback = 60
     
     while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
         day_ist = today_ist - timedelta(days=days_back)
         
-        # Skip weekends if enabled
         if skip_weekends and is_weekend(day_ist):
             days_back += 1
             continue
@@ -314,13 +346,12 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
         
         candles = fetch_candles(code, start_utc, end_utc, granularity="M15")
         
-        # Only count as a trading day if we got candles
         if candles:
             trading_days_collected += 1
             
             for c in candles:
                 if not c.get("complete", True):
-                    continue  # Skip incomplete candles
+                    continue
                 try:
                     t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
                 except ValueError:
@@ -331,7 +362,6 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
         
         days_back += 1
     
-    # Return simple averages
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
 def compute_4h_position_averages(code, skip_weekends=True):
@@ -342,12 +372,11 @@ def compute_4h_position_averages(code, skip_weekends=True):
     
     trading_days_collected = 0
     days_back = 1
-    max_lookback = 60  # Safety limit
+    max_lookback = 60
     
     while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
         day_ist = today_ist - timedelta(days=days_back)
         
-        # Skip weekends if enabled
         if skip_weekends and is_weekend(day_ist):
             days_back += 1
             continue
@@ -360,7 +389,6 @@ def compute_4h_position_averages(code, skip_weekends=True):
         
         candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
         
-        # Only count as a trading day if we got candles
         if candles:
             trading_days_collected += 1
             
@@ -379,25 +407,8 @@ def compute_4h_position_averages(code, skip_weekends=True):
     
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
-def get_sentiment(candle):
-    o = float(candle["mid"]["o"])
-    c = float(candle["mid"]["c"])
-    return "🟩" if c > o else "🟥" if c < o else "▪️"
-
-def pad_display(s, width):
-    pad_len = width - sum(wcwidth.wcwidth(ch) for ch in s)
-    return s + " " * max(pad_len, 0)
-
-def get_spike_bar(multiplier):
-    if multiplier < 1.2:
-        return pad_display("", 5)
-    bars = int((multiplier - 1.2) * 5)
-    bar_str = "┃" * max(1, min(bars, 5))
-    return pad_display(bar_str, 5)
-
 # ====== CORE PROCESS ======
 def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
-    # pass skip_weekends from the UI toggle into the cached averages calculation
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=st.session_state.skip_weekends)
     now_utc = datetime.now(UTC)
     is_4h_mode = (granularity == "H4")
@@ -439,17 +450,33 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
         sentiment = get_sentiment(c)
         
-        rows.append([
-            t_ist.strftime("%Y-%m-%d %I:%M %p"),
-            display_bucket,
-            f"{float(c['mid']['o']):.1f}",
-            f"{float(c['mid']['h']):.1f}",
-            f"{float(c['mid']['l']):.1f}",
-            f"{float(c['mid']['c']):.1f}",
-            vol,
-            spike_diff,
-            sentiment
-        ])
+        # Build row based on mode
+        if is_4h_mode:
+            body_pct = get_body_percentage(c)
+            rows.append([
+                t_ist.strftime("%Y-%m-%d %I:%M %p"),
+                display_bucket,
+                f"{float(c['mid']['o']):.1f}",
+                f"{float(c['mid']['h']):.1f}",
+                f"{float(c['mid']['l']):.1f}",
+                f"{float(c['mid']['c']):.1f}",
+                vol,
+                spike_diff,
+                sentiment,
+                body_pct  # New column for 4H mode
+            ])
+        else:
+            rows.append([
+                t_ist.strftime("%Y-%m-%d %I:%M %p"),
+                display_bucket,
+                f"{float(c['mid']['o']):.1f}",
+                f"{float(c['mid']['h']):.1f}",
+                f"{float(c['mid']['l']):.1f}",
+                f"{float(c['mid']['c']):.1f}",
+                vol,
+                spike_diff,
+                sentiment
+            ])
         
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
@@ -462,7 +489,6 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             "sentiment": sentiment
         }
         
-        # use a deterministic candle id (time is best)
         if c in last_two_candles and over:
             candle_id = f"{name}_{c['time']}_{round(float(c['mid']['o']), 2)}"
             if candle_id not in alerted_candles:
@@ -498,12 +524,13 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
     
+    # Define columns based on mode
     if is_4h_mode:
         columns = [
             "Time (IST)",
             "Time Range (4H)",
             "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment"
+            "Volume", "Spike Δ", "Sentiment", "Body %"  # Added Body %
         ]
     else:
         columns = [
@@ -516,21 +543,28 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
-    # Updated to use width="stretch" instead of use_container_width
+    # Configure column display
+    column_config = {
+        "Open": st.column_config.NumberColumn(format="%.1f"),
+        "High": st.column_config.NumberColumn(format="%.1f"),
+        "Low": st.column_config.NumberColumn(format="%.1f"),
+        "Close": st.column_config.NumberColumn(format="%.1f"),
+        "Volume": st.column_config.NumberColumn(format="%.0f"),
+        "Spike Δ": st.column_config.TextColumn(),
+        "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
+    }
+    
+    if is_4h_mode:
+        column_config["Body %"] = st.column_config.TextColumn(
+            help="Body as % of total range. Higher % = stronger directional move, Lower % = indecision/doji"
+        )
+    
     st.dataframe(
         df,
-        width="stretch",  # Changed from width=None to width="stretch"
+        width="stretch",
         hide_index=True,
         height=520,
-        column_config={
-            "Open": st.column_config.NumberColumn(format="%.1f"),
-            "High": st.column_config.NumberColumn(format="%.1f"),
-            "Low": st.column_config.NumberColumn(format="%.1f"),
-            "Close": st.column_config.NumberColumn(format="%.1f"),
-            "Volume": st.column_config.NumberColumn(format="%.0f"),
-            "Spike Δ": st.column_config.TextColumn(),
-            "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
-        },
+        column_config=column_config,
     )
     
     csv = df.to_csv(index=False).encode('utf-8')
@@ -551,7 +585,6 @@ def run_volume_check():
         st.warning("⚠️ No instruments selected. Please choose at least one.")
         return
     
-    # NEW: derive granularity + bucket from Candle Size toggle
     if st.session_state.candle_size == "4 hour":
         granularity = "H4"
         bucket_minutes = 240
