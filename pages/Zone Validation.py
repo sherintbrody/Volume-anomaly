@@ -1019,12 +1019,34 @@ st.markdown("""
 with st.sidebar:
     st.markdown("## ⚙️ **Analysis Configuration**")
     
-    symbol = st.text_input(
-        "📈 **Trading Symbol**", 
-        value="XAU/USD", 
-        help="Enter your trading pair (e.g., EUR/USD, BTC/USD)",
-        placeholder="Enter symbol..."
-    )
+    # UPDATED: Enhanced Trading Symbol Selection with popular symbols
+    st.markdown("### 📈 **Trading Symbol**")
+    
+    # Quick selection for popular symbols
+    popular_symbols = ["XAU/USD", "NAS100", "US30", "EUR/USD", "GBP/USD", "USD/JPY", "BTC/USD", "ETH/USD"]
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        symbol_option = st.selectbox(
+            "**Quick Select**",
+            options=["Custom"] + popular_symbols,
+            help="Choose from popular trading symbols or select Custom to enter your own"
+        )
+    
+    with col2:
+        if st.button("🔄", help="Refresh symbol list"):
+            st.rerun()
+    
+    if symbol_option == "Custom":
+        symbol = st.text_input(
+            "**Enter Symbol**", 
+            value="XAU/USD",
+            help="Enter your trading pair (e.g., EUR/USD, BTC/USD, AAPL)",
+            placeholder="Enter custom symbol..."
+        )
+    else:
+        symbol = symbol_option
+        st.info(f"Selected: **{symbol}**")
     
     pattern = st.selectbox(
         "🎨 **Pattern Type**", 
@@ -1152,58 +1174,154 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
         
+        # FIXED: Initialize session state for time range persistence
+        if 'manual_start_date' not in st.session_state:
+            st.session_state.manual_start_date = datetime.now(IST).date() - timedelta(days=3)
+        if 'manual_start_time' not in st.session_state:
+            st.session_state.manual_start_time = datetime.strptime("00:00", "%H:%M").time()
+        if 'manual_end_date' not in st.session_state:
+            st.session_state.manual_end_date = datetime.now(IST).date()
+        if 'manual_end_time' not in st.session_state:
+            st.session_state.manual_end_time = datetime.strptime("16:00", "%H:%M").time()
+        
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**📅 Start Time**")
-            start_date = st.date_input("Date", value=datetime.now(IST).date() - timedelta(days=3))
-            start_time = st.time_input("Time (IST)", value=datetime.now(IST).time())
+            start_date = st.date_input(
+                "Date", 
+                value=st.session_state.manual_start_date,
+                key="start_date_input"
+            )
+            start_time = st.time_input(
+                "Time (IST)", 
+                value=st.session_state.manual_start_time,
+                key="start_time_input"
+            )
             
         with col2:
             st.markdown("**📅 End Time**")
-            end_date = st.date_input("Date ", value=datetime.now(IST).date())
-            end_time = st.time_input("Time (IST) ", value=datetime.now(IST).time())
+            end_date = st.date_input(
+                "Date ", 
+                value=st.session_state.manual_end_date,
+                key="end_date_input"
+            )
+            end_time = st.time_input(
+                "Time (IST) ", 
+                value=st.session_state.manual_end_time,
+                key="end_time_input"
+            )
         
-        if st.button("**Validate Time Range**", type="primary"):
+        # Update session state when values change
+        st.session_state.manual_start_date = start_date
+        st.session_state.manual_start_time = start_time
+        st.session_state.manual_end_date = end_date
+        st.session_state.manual_end_time = end_time
+        
+        # Add preset time range buttons
+        st.markdown("**Quick Time Ranges:**")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("Last 12H", help="Last 12 hours"):
+                now_ist = datetime.now(IST)
+                st.session_state.manual_end_date = now_ist.date()
+                st.session_state.manual_end_time = now_ist.time()
+                st.session_state.manual_start_date = (now_ist - timedelta(hours=12)).date()
+                st.session_state.manual_start_time = (now_ist - timedelta(hours=12)).time()
+                st.rerun()
+        
+        with col2:
+            if st.button("Last 24H", help="Last 24 hours"):
+                now_ist = datetime.now(IST)
+                st.session_state.manual_end_date = now_ist.date()
+                st.session_state.manual_end_time = now_ist.time()
+                st.session_state.manual_start_date = (now_ist - timedelta(days=1)).date()
+                st.session_state.manual_start_time = (now_ist - timedelta(days=1)).time()
+                st.rerun()
+        
+        with col3:
+            if st.button("Last 3 Days", help="Last 3 days"):
+                now_ist = datetime.now(IST)
+                st.session_state.manual_end_date = now_ist.date()
+                st.session_state.manual_end_time = now_ist.time()
+                st.session_state.manual_start_date = (now_ist - timedelta(days=3)).date()
+                st.session_state.manual_start_time = (now_ist - timedelta(days=3)).time()
+                st.rerun()
+        
+        with col4:
+            if st.button("Reset", help="Reset to default"):
+                st.session_state.manual_start_date = datetime.now(IST).date() - timedelta(days=3)
+                st.session_state.manual_start_time = datetime.strptime("00:00", "%H:%M").time()
+                st.session_state.manual_end_date = datetime.now(IST).date()
+                st.session_state.manual_end_time = datetime.strptime("16:00", "%H:%M").time()
+                st.rerun()
+        
+        # Display selected time range
+        try:
             start_ist = IST.localize(datetime.combine(start_date, start_time))
             end_ist = IST.localize(datetime.combine(end_date, end_time))
-            start_utc = start_ist.astimezone(UTC) - timedelta(days=5)
-            end_utc = end_ist.astimezone(UTC)
+            duration = end_ist - start_ist
             
-            with st.spinner("🔄 Analyzing time range and calculating patterns..."):
-                df = fetch_ohlc(symbol, start_utc, end_utc)
+            st.markdown(f"""
+            <div style="background: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0;">
+                <strong>Selected Range:</strong> {start_ist.strftime('%Y-%m-%d %H:%M')} to {end_ist.strftime('%Y-%m-%d %H:%M')} IST<br>
+                <strong>Duration:</strong> {duration} ({duration.total_seconds()/3600:.1f} hours)
+            </div>
+            """, unsafe_allow_html=True)
             
-            if not df.empty:
-                st.session_state['df'] = df
+        except Exception as e:
+            st.error(f"Invalid time range: {e}")
+        
+        if st.button("**Validate Time Range**", type="primary"):
+            try:
+                start_ist = IST.localize(datetime.combine(start_date, start_time))
+                end_ist = IST.localize(datetime.combine(end_date, end_time))
                 
-                has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
+                if end_ist <= start_ist:
+                    st.error("❌ End time must be after start time!")
+                    st.stop()
                 
-                if use_auto_atr:
-                    if has_incomplete and len(df) > 1:
-                        current_atr = df['atr'].iloc[-2]
-                        st.success(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
-                    else:
-                        current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
-                        st.success(f"📊 Auto-detected ATR: {current_atr:.4f}")
+                start_utc = start_ist.astimezone(UTC) - timedelta(days=5)
+                end_utc = end_ist.astimezone(UTC)
                 
-                sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
+                with st.spinner("🔄 Analyzing time range and calculating patterns..."):
+                    df = fetch_ohlc(symbol, start_utc, end_utc)
                 
-                if not sel.empty and len(sel) <= 6:
-                    candles = [
-                        dict(open=row.open, high=row.high, low=row.low, close=row.close)
-                        for _, row in sel.iterrows()
-                    ]
-                    selected_candles = candles
-                    st.session_state['selected_candles'] = sel
+                if not df.empty:
+                    st.session_state['df'] = df
                     
-                    ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
-                    display_validation_results(ok, message, pattern, details)
-                    display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
-                elif len(sel) > 6:
-                    st.warning(f"⚠️ Selected range contains {len(sel)} candles. Maximum allowed is 6 candles for pattern analysis.")
+                    has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
+                    
+                    if use_auto_atr:
+                        if has_incomplete and len(df) > 1:
+                            current_atr = df['atr'].iloc[-2]
+                            st.success(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
+                        else:
+                            current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                            st.success(f"📊 Auto-detected ATR: {current_atr:.4f}")
+                    
+                    sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
+                    
+                    if not sel.empty and len(sel) <= 6:
+                        candles = [
+                            dict(open=row.open, high=row.high, low=row.low, close=row.close)
+                            for _, row in sel.iterrows()
+                        ]
+                        selected_candles = candles
+                        st.session_state['selected_candles'] = sel
+                        
+                        ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
+                        display_validation_results(ok, message, pattern, details)
+                        display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
+                    elif len(sel) > 6:
+                        st.warning(f"⚠️ Selected range contains {len(sel)} candles. Maximum allowed is 6 candles for pattern analysis.")
+                    else:
+                        st.warning("⚠️ No complete candles found in the selected time range.")
                 else:
-                    st.warning("⚠️ No complete candles found in the selected time range.")
-            else:
-                st.error("❌ Unable to fetch data for the specified time range.")
+                    st.error("❌ Unable to fetch data for the specified time range.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error processing time range: {e}")
 
     else:  # Custom selection
         st.markdown("### 🎯 **Custom Candle Selection**")
