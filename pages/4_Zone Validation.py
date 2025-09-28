@@ -1140,7 +1140,6 @@ with st.sidebar:
     
     # Display OANDA instrument format
     oanda_symbol = convert_symbol_to_oanda(symbol)
-    st.info(f"OANDA Format: **{oanda_symbol}**")
     
     pattern = st.selectbox(
         "🎨 **Pattern Type**", 
