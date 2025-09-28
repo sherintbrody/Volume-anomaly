@@ -245,11 +245,9 @@ def create_sound_alert():
     return sound_html
 
 # ====== SECURE CONFIG ======
-# Use Streamlit secrets for credentials
-API_KEY = st.secrets["OANDA2"]["API_KEY"]
-ACCOUNT_ID = st.secrets.get("OANDA_ACCOUNT_ID", "")
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
+ACCOUNT_ID = "101-004-37091392-001"
+BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 if not API_KEY or not ACCOUNT_ID:
     st.error("⚠️ Please configure OANDA_API_KEY and OANDA_ACCOUNT_ID in .streamlit/secrets.toml")
