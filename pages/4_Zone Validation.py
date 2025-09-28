@@ -1109,7 +1109,7 @@ with st.sidebar:
     st.markdown("### 📈 **Trading Symbol**")
     
     # Quick selection for OANDA supported symbols
-    popular_symbols = ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"]
+    popular_symbols = ["XAU/USD", "US30", "NAS100"]
     indices_symbols = ["US30", "NAS100", "SPX500", "UK100", "DE30", "FR40", "AU200"]
     
     col1, col2 = st.columns([2, 1])
