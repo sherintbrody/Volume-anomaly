@@ -107,6 +107,7 @@ UTC = pytz.UTC
 
  #--- Twelve Data API ---
 API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
+BASE_URL = "https://api.twelvedata.com"
 
 # --- Helper function to check if candle is complete ---
 def is_candle_complete(candle_time, interval_hours=4):
