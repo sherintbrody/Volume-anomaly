@@ -469,10 +469,6 @@ with st.sidebar.expander("📊 **Instruments**", expanded=True):
         default=st.session_state.selected_instruments,
         key="selected_instruments"
     )
-with st.sidebar.expander("🧪 Test Telegram", expanded=False):
-    if st.button("Send Test Alert"):
-        resp = send_telegram_alert("✅ Test message from Streamlit dashboard")
-        st.write("Telegram response:", resp)
 
 
 with st.sidebar.expander("⏱️ **Timing Settings**", expanded=True):
@@ -532,6 +528,11 @@ with st.sidebar.expander("📈 **Display Options**", expanded=False):
         value=st.session_state.skip_weekends,
         key="skip_weekends"
     )
+
+with st.sidebar.expander("🧪 Test Telegram", expanded=False):
+    if st.button("Send Test Alert"):
+        resp = send_telegram_alert("✅ Test message from Streamlit dashboard")
+        st.write("Telegram response:", resp)
 
 # ====== AUTO-REFRESH ======
 refresh_ms = st.session_state.refresh_minutes * 60 * 1000
