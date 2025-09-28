@@ -105,10 +105,10 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-# --- Twelve Data API ---
+
 # --- OANDA API ---
-API_KEY = st.secrets["b3f49c357df0852d6141377a821e7a67-20514dacb28f665d453d071d57ed67c9"]
-ACCOUNT_ID = st.secrets["101-001-37134715-001"]
+API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 
 # Practice environment base URL
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
