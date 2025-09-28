@@ -114,6 +114,11 @@ BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 # OANDA instrument mapping
 SYMBOL_MAPPING = {
+    "NAS100": "NAS100_USD",
+    "US30": "US30_USD",
+    "XAU/USD": "XAU_USD",
+    "SPX500": "SPX500_USD",
+    "XAG/USD": "XAG_USD",
     "EUR/USD": "EUR_USD",
     "GBP/USD": "GBP_USD", 
     "USD/JPY": "USD_JPY",
@@ -124,11 +129,6 @@ SYMBOL_MAPPING = {
     "EUR/GBP": "EUR_GBP",
     "EUR/JPY": "EUR_JPY",
     "GBP/JPY": "GBP_JPY",
-    "XAU/USD": "XAU_USD",
-    "XAG/USD": "XAG_USD",
-    "US30": "US30_USD",
-    "NAS100": "NAS100_USD",
-    "SPX500": "SPX500_USD",
     "UK100": "UK100_GBP",
     "DE30": "DE30_EUR",
     "FR40": "FR40_EUR",
