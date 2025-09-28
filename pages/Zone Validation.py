@@ -3,7 +3,12 @@ import requests
 import pandas as pd
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import pytz
 import plotly.graph_objects as go
+
+# --- Timezone Setup ---
+IST = pytz.timezone('Asia/Kolkata')
+UTC = pytz.UTC
 
 # --- Twelve Data API ---
 API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
@@ -23,9 +28,14 @@ def fetch_ohlc(symbol, start, end, interval="4h"):
     response = requests.get(BASE_URL, params=params).json()
     values = response.get("values", [])
     df = pd.DataFrame(values)
-    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-    df = df.sort_values("datetime").reset_index(drop=True)
-    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+    
+    if not df.empty:
+        # Convert to IST
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+        df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
+        df = df.sort_values("datetime").reset_index(drop=True)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+    
     return df
 
 # --- Zone Structure ---
@@ -46,6 +56,7 @@ class Zone:
 class Candle:
     name: int
     datetime: datetime
+    datetime_ist: datetime
     open: float
     high: float
     low: float
@@ -69,9 +80,6 @@ def calculate_zone_boundaries(candles, zone_type):
     if not candles:
         return None
     
-    # For rally: zone is from the lowest low to the open of first candle
-    # For drop: zone is from the open of first candle to the highest high
-    
     all_highs = [c.high for c in candles]
     all_lows = [c.low for c in candles]
     first_open = candles[0].open
@@ -89,8 +97,8 @@ def calculate_zone_boundaries(candles, zone_type):
     
     return Zone(
         type=zone_type,
-        start_time=candles[0].datetime,
-        end_time=candles[-1].datetime,
+        start_time=candles[0].datetime_ist,
+        end_time=candles[-1].datetime_ist,
         zone_low=zone_low,
         zone_high=zone_high,
         origin_low=origin_low,
@@ -150,9 +158,9 @@ def plot_zone_chart(df, zone, selected_candles_df=None):
     """Create a candlestick chart with zone visualization."""
     fig = go.Figure()
     
-    # Add candlestick chart
+    # Use IST datetime for display
     fig.add_trace(go.Candlestick(
-        x=df['datetime'],
+        x=df['datetime_ist'],
         open=df['open'],
         high=df['high'],
         low=df['low'],
@@ -166,7 +174,7 @@ def plot_zone_chart(df, zone, selected_candles_df=None):
         fig.add_shape(
             type="rect",
             x0=zone.start_time,
-            x1=df['datetime'].iloc[-1],  # Extend to current
+            x1=df['datetime_ist'].iloc[-1],  # Extend to current
             y0=zone.zone_low,
             y1=zone.zone_high,
             fillcolor="green" if zone.type == "rally" else "red",
@@ -200,20 +208,21 @@ def plot_zone_chart(df, zone, selected_candles_df=None):
             bordercolor="green" if zone.type == "rally" else "red"
         )
     
-    # Highlight selected candles if manual mode
-    if selected_candles_df is not None and not selected_candles_df.empty:
-        fig.add_trace(go.Scatter(
-            x=selected_candles_df['datetime'],
-            y=selected_candles_df['high'] * 1.001,  # Slightly above high
-            mode='markers',
-            marker=dict(symbol='triangle-down', size=12, color='orange'),
-            name='Selected Candles'
-        ))
+    # Highlight selected candles if manual mode - Fixed error handling
+    if selected_candles_df is not None:
+        if isinstance(selected_candles_df, pd.DataFrame) and not selected_candles_df.empty:
+            fig.add_trace(go.Scatter(
+                x=selected_candles_df['datetime_ist'],
+                y=selected_candles_df['high'] * 1.001,  # Slightly above high
+                mode='markers',
+                marker=dict(symbol='triangle-down', size=12, color='orange'),
+                name='Selected Candles'
+            ))
     
     fig.update_layout(
-        title="Rally/Drop Zone Analysis",
+        title="Rally/Drop Zone Analysis (IST)",
         yaxis_title="Price",
-        xaxis_title="Time",
+        xaxis_title="Time (IST)",
         height=600,
         xaxis_rangeslider_visible=False
     )
@@ -222,6 +231,10 @@ def plot_zone_chart(df, zone, selected_candles_df=None):
 
 # --- Streamlit UI ---
 st.title("🎯 Rally/Drop Zone Validator")
+
+# Display current time in IST
+current_time_ist = datetime.now(IST)
+st.caption(f"Current Time (IST): {current_time_ist.strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Sidebar configuration
 st.sidebar.header("Configuration")
@@ -260,11 +273,12 @@ with col1:
         n_candles = st.slider("Number of candles to analyze", 1, 6, 3)
         
         if st.button("Analyze Last Candles"):
-            end = datetime.now(timezone.utc)
-            start = end - timedelta(days=5)
+            # Convert current IST time to UTC for API call
+            end_utc = datetime.now(UTC)
+            start_utc = end_utc - timedelta(days=5)
             
             with st.spinner("Fetching data..."):
-                df = fetch_ohlc(symbol, start, end)
+                df = fetch_ohlc(symbol, start_utc, end_utc)
                 
             if not df.empty:
                 df["atr"] = (df["high"] - df["low"]).abs()
@@ -275,6 +289,7 @@ with col1:
                     Candle(
                         name=i, 
                         datetime=row.datetime,
+                        datetime_ist=row.datetime_ist,
                         open=row.open, 
                         high=row.high, 
                         low=row.low, 
@@ -292,30 +307,36 @@ with col1:
     
     elif mode == "Manual Time Range":
         st.subheader("🕐 Manual Time Range")
+        st.info("⏰ Please enter time in IST (Indian Standard Time)")
         
         col_start, col_end = st.columns(2)
         with col_start:
-            start_date = st.date_input("Start Date", value=datetime.now() - timedelta(days=3))
-            start_time = st.time_input("Start Time (UTC)", value=datetime.now().time())
+            start_date = st.date_input("Start Date", value=datetime.now(IST).date() - timedelta(days=3))
+            start_time = st.time_input("Start Time (IST)", value=datetime.now(IST).time())
         
         with col_end:
-            end_date = st.date_input("End Date", value=datetime.now())
-            end_time = st.time_input("End Time (UTC)", value=datetime.now().time())
+            end_date = st.date_input("End Date", value=datetime.now(IST).date())
+            end_time = st.time_input("End Time (IST)", value=datetime.now(IST).time())
         
         if st.button("Validate Time Range"):
-            start = datetime.combine(start_date, start_time).replace(tzinfo=timezone.utc)
-            end = datetime.combine(end_date, end_time).replace(tzinfo=timezone.utc)
+            # Create IST datetime and convert to UTC for API
+            start_ist = IST.localize(datetime.combine(start_date, start_time))
+            end_ist = IST.localize(datetime.combine(end_date, end_time))
+            
+            # Convert to UTC for API call
+            start_utc = start_ist.astimezone(UTC)
+            end_utc = end_ist.astimezone(UTC)
             
             # Fetch wider range for context
-            context_start = start - timedelta(days=2)
-            context_end = end + timedelta(days=1)
+            context_start = start_utc - timedelta(days=2)
+            context_end = end_utc + timedelta(days=1)
             
             with st.spinner("Fetching data..."):
                 df = fetch_ohlc(symbol, context_start, context_end)
             
             if not df.empty:
-                # Filter candles within selected range
-                mask = (df['datetime'] >= start) & (df['datetime'] <= end)
+                # Filter candles within selected IST range
+                mask = (df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist)
                 selected_df = df[mask].copy()
                 
                 if not selected_df.empty:
@@ -326,6 +347,7 @@ with col1:
                         Candle(
                             name=i,
                             datetime=row.datetime,
+                            datetime_ist=row.datetime_ist,
                             open=row.open,
                             high=row.high,
                             low=row.low,
@@ -354,11 +376,11 @@ with col1:
         
         # Fetch recent data for selection
         if st.button("Load Recent Data"):
-            end = datetime.now(timezone.utc)
-            start = end - timedelta(days=10)
+            end_utc = datetime.now(UTC)
+            start_utc = end_utc - timedelta(days=10)
             
             with st.spinner("Loading data..."):
-                df = fetch_ohlc(symbol, start, end)
+                df = fetch_ohlc(symbol, start_utc, end_utc)
             
             if not df.empty:
                 st.session_state['df'] = df
@@ -368,16 +390,16 @@ with col1:
         if 'df' in st.session_state:
             df = st.session_state['df']
             
-            # Create selectable dataframe
-            df_display = df[['datetime', 'open', 'high', 'low', 'close']].copy()
-            df_display['datetime'] = df_display['datetime'].dt.strftime('%Y-%m-%d %H:%M')
+            # Create selectable dataframe with IST time
+            df_display = df[['datetime_ist', 'open', 'high', 'low', 'close']].copy()
+            df_display['datetime_ist'] = df_display['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
             df_display.index = range(len(df_display))
             
             st.write("Select candles to validate (max 6):")
             selected_indices = st.multiselect(
                 "Select candle indices:",
                 options=df_display.index.tolist(),
-                format_func=lambda x: f"{x}: {df_display.loc[x, 'datetime']} | O:{df_display.loc[x, 'open']:.2f} C:{df_display.loc[x, 'close']:.2f}"
+                format_func=lambda x: f"{x}: {df_display.loc[x, 'datetime_ist']} | O:{df_display.loc[x, 'open']:.2f} C:{df_display.loc[x, 'close']:.2f}"
             )
             
             if selected_indices and st.button("Validate Selected Candles"):
@@ -391,6 +413,7 @@ with col1:
                     Candle(
                         name=idx,
                         datetime=df.loc[idx, 'datetime'],
+                        datetime_ist=df.loc[idx, 'datetime_ist'],
                         open=df.loc[idx, 'open'],
                         high=df.loc[idx, 'high'],
                         low=df.loc[idx, 'low'],
@@ -423,6 +446,10 @@ with col2:
         st.metric("Zone Height", f"{zone.zone_high - zone.zone_low:.2f}")
         st.metric("Candles", zone.candle_count)
         
+        # Display times in IST
+        st.caption(f"Start: {zone.start_time.strftime('%Y-%m-%d %H:%M IST')}")
+        st.caption(f"End: {zone.end_time.strftime('%Y-%m-%d %H:%M IST')}")
+        
         # Trading suggestions
         st.subheader("💡 Trading Ideas")
         if zone.type == "rally":
@@ -436,12 +463,17 @@ with col2:
 if df is not None and not df.empty:
     st.subheader("📈 Zone Visualization")
     
-    # Determine what to highlight
+    # Determine what to highlight - Fixed error handling
     selected_df = None
     if mode == "Manual Time Range" and zone:
-        selected_df = df[(df['datetime'] >= zone.start_time) & (df['datetime'] <= zone.end_time)]
+        selected_df = df[(df['datetime_ist'] >= zone.start_time) & (df['datetime_ist'] <= zone.end_time)]
     elif mode == "Custom Candle Selection" and 'selected_candles' in locals():
-        selected_df = selected_candles
+        if isinstance(selected_candles, pd.DataFrame):
+            selected_df = selected_candles
+        elif isinstance(selected_candles, list) and len(selected_candles) > 0:
+            selected_df = pd.DataFrame(selected_candles)
+        else:
+            selected_df = None
     
     fig = plot_zone_chart(df, zone, selected_df)
     st.plotly_chart(fig, use_container_width=True)
@@ -457,3 +489,20 @@ if df is not None and not df.empty:
             st.info(f"**Zone Range:** {zone.zone_high - zone.zone_low:.2f}")
         with col_c:
             st.info(f"**Origin Move:** {zone.origin_high - zone.origin_low:.2f}")
+        
+        # Display validation details
+        st.subheader("🔍 Validation Details")
+        st.write(f"- **Candles Analyzed:** {zone.candle_count}")
+        st.write(f"- **Zone Strength:** {zone.strength.upper()}")
+        st.write(f"- **Time Period:** {zone.start_time.strftime('%d %b %H:%M')} to {zone.end_time.strftime('%d %b %H:%M IST')}")
+
+# Display recent data table
+if df is not None and not df.empty:
+    st.subheader("📊 Recent Price Data (IST)")
+    
+    # Show recent candles with IST time
+    display_df = df[['datetime_ist', 'open', 'high', 'low', 'close']].tail(20).copy()
+    display_df['datetime_ist'] = display_df['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
+    display_df.columns = ['Time (IST)', 'Open', 'High', 'Low', 'Close']
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
