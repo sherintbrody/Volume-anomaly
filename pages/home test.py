@@ -741,7 +741,14 @@ def create_volume_chart(name, rows, threshold, is_spike):
         font=dict(color='#94a3b8')
     )
     
-    fig.update_xaxes(gridcolor='rgba(51, 65, 85, 0.3)')
+    # Hide x-axis labels and ticks completely
+    fig.update_xaxes(
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False
+    )
+    
+    # Keep y-axis grid styling
     fig.update_yaxes(gridcolor='rgba(51, 65, 85, 0.3)')
     
     return fig
