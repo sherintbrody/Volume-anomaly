@@ -492,9 +492,9 @@ def validate_pattern_detailed(candles, atr, pattern):
     overall = all(results.values())
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
 
-# --- ENHANCED Plot function with improved styling and boundaries ---
+# --- UPDATED Plot function with removed title and no boundary dots ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create enhanced combined chart with improved pattern visualization and optimized spacing"""
+    """Create enhanced combined chart with optimized spacing and clean pattern visualization"""
     
     # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
@@ -511,15 +511,16 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     rows = 2 if show_atr else 1
     row_heights = [0.65, 0.35] if show_atr else [1.0]
     
+    # REMOVED: Trading Pattern Analysis Dashboard title
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.03,
         row_heights=row_heights,
         subplot_titles=(
-            '<b style="color:#2E86C1; font-size:18px;">📊 Trading Pattern Analysis Dashboard</b>',
+            None,
             '<b style="color:#E74C3C; font-size:16px;">📈 ATR Volatility Indicator (21-Period)</b>'
-        ) if show_atr else ('<b style="color:#2E86C1; font-size:18px;">📊 Trading Pattern Analysis Dashboard</b>',)
+        ) if show_atr else (None,)
     )
     
     # Enhanced Price Chart with better colors
@@ -564,7 +565,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 hovertemplate='<b>Status</b>: Candle Still Forming<br><extra></extra>'
             ), row=1, col=1)
     
-    # IMPROVED: Pattern boundary visualization instead of star markers
+    # UPDATED: Pattern boundary visualization - Keep yellow gradient, remove dots
     if selected_candles_df is not None and not selected_candles_df.empty:
         # Get the boundary coordinates
         min_time = selected_candles_df['datetime_ist'].min()
@@ -572,7 +573,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         min_price = selected_candles_df['low'].min()
         max_price = selected_candles_df['high'].max()
         
-        # Add pattern boundary rectangle
+        # Add pattern boundary rectangle (keep the yellow gradient)
         fig.add_shape(
             type="rect",
             x0=min_time,
@@ -588,27 +589,9 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             row=1, col=1
         )
         
-        # Add inverted triangle markers above selected candles
-        fig.add_trace(go.Scatter(
-            x=selected_candles_df['datetime_ist'],
-            y=selected_candles_df['high'] * 1.005,
-            mode='markers+text',
-            marker=dict(
-                symbol='triangle-down',
-                size=18,
-                color='#FFD700',
-                line=dict(color='#FF8C00', width=2),
-                opacity=0.9
-            ),
-            text='🔻',
-            textfont=dict(size=10),
-            textposition="middle center",
-            name='Pattern Zone',
-            showlegend=True,
-            hovertemplate='<b>Selected Pattern Candle</b><br>Time: %{x}<br><extra></extra>'
-        ), row=1, col=1)
+        # REMOVED: Triangle markers (yellow dots) - No longer adding these
         
-        # Add pattern information annotation
+        # Add pattern information annotation (keep this)
         pattern_info = f"Pattern: {len(selected_candles_df)} candles"
         fig.add_annotation(
             x=min_time,
@@ -1108,7 +1091,7 @@ with tab1:
                 help="Select the last N complete candles for pattern analysis (maximum 6 candles)"
             )
         with col2:
-            analyze_btn = st.button("**Analyze Pattern**", type="primary", use_container_width=True)
+            analyze_btn = st.button("**Analyze Pattern**", type="primary", width='stretch')
         
         if analyze_btn:
             end_utc = datetime.now(UTC)
@@ -1303,7 +1286,7 @@ with tab2:
             fig.update_layout(template="plotly_white", paper_bgcolor='white', plot_bgcolor='white')
             fig.update_layout(font=dict(color='black'))
         
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True, 'toImageButtonOptions': {'format': 'png', 'filename': f'{symbol}_analysis', 'height': 800, 'width': 1200, 'scale': 1}})
+        st.plotly_chart(fig, width='stretch', config={'displayModeBar': True, 'toImageButtonOptions': {'format': 'png', 'filename': f'{symbol}_analysis', 'height': 800, 'width': 1200, 'scale': 1}})
         
         # Chart insights
         if sel_df is not None and not sel_df.empty:
@@ -1397,7 +1380,7 @@ with tab3:
         # Enhanced data display
         st.dataframe(
             display_df,
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             height=500
         )
@@ -1412,11 +1395,11 @@ with tab3:
                 data=csv,
                 file_name=f"{symbol}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                use_container_width=True
+                width='stretch'
             )
         
         with col2:
-            if st.button("📈 **Quick Stats**", use_container_width=True):
+            if st.button("📈 **Quick Stats**", width='stretch'):
                 latest_prices = df[price_cols].iloc[-show_last_n:]
                 st.markdown(f"""
                 **📊 Market Summary (Last {show_last_n} Candles)**
@@ -1427,7 +1410,7 @@ with tab3:
                 """)
         
         with col3:
-            if 'atr' in df.columns and st.button("📊 **ATR Analysis**", use_container_width=True):
+            if 'atr' in df.columns and st.button("📊 **ATR Analysis**", width='stretch'):
                 recent_atr = df['atr'].iloc[-show_last_n:].dropna()
                 st.markdown(f"""
                 **📈 ATR Statistics (Last {len(recent_atr)} Periods)**
