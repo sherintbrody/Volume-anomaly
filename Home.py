@@ -245,8 +245,9 @@ def create_sound_alert():
 # ====== SECURE CONFIG ======
 # Check if we have secrets (Streamlit Cloud) or use fallback
 try:
-    API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
-    ACCOUNT_ID = "101-004-37091392-001"
+    # --- Twelve Data API ---
+    API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
+    ACCOUNT_ID = st.secrets["TWELVE_DATA"]["ACCOUNT_ID"]
     BASE_URL = "https://api-fxpractice.oanda.com/v3"
     TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
