@@ -130,7 +130,7 @@ class Candle:
     low: float
     close: float
 
-# --- Pattern Rules (same as before) ---
+# --- Pattern Rules ---
 pattern_rules = {
     "base": {
         1:  {"max_range_atr": 0.8},
@@ -173,7 +173,7 @@ pattern_rules = {
     }
 }
 
-# --- Helper Functions (same as before) ---
+# --- Helper Functions ---
 def range_atr(candle, atr):
     return (candle["high"] - candle["low"]) / atr
 
@@ -313,6 +313,7 @@ def plot_combined_chart(df, selected_candles_df=None, atr_values=None):
         )
     
     # ATR chart
-    if atr_values is not None:
+    if atr_values is not None and len(atr_values) > 0:
         fig.add_trace(
-            go.
+            go.Scatter(
+                x=
