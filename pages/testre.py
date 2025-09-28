@@ -257,12 +257,10 @@ def send_telegram_alert(message: str):
     }
     try:
         r = requests.post(url, json=payload, timeout=10)
-        if r.status_code != 200:
-            st.error(f"Telegram error {r.status_code}: {r.text}")
-        return r.json()   # return response for debugging / test
+        r.raise_for_status()  # will raise if not 200
     except Exception as e:
         st.error(f"Telegram send failed: {e}")
-        return None
+
 
         
 # ====== SECURE CONFIG ======
