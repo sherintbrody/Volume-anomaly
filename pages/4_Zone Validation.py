@@ -476,6 +476,9 @@ def validate_pattern_detailed(candles, atr, pattern):
                 results['close_span'] = close_span_atr(candles, atr) <= rules["max_close_span_atr"]
             if "max_net_move_atr" in rules:
                 results['net_move'] = net_move_atr(candles, atr) <= rules["max_net_move_atr"]
+        
+        # For base patterns, keep original logic
+        overall = all(results.values())
     
     elif pattern == "rally":
         # Rally pattern validation
@@ -487,6 +490,9 @@ def validate_pattern_detailed(candles, atr, pattern):
             if candle_range > 0:
                 close_position = (candles[0]["close"] - candles[0]["low"]) / candle_range
                 results['close_position'] = close_position >= (1 - rules["close_upper_pct"])
+            
+            # For single candle, keep original logic
+            overall = all(results.values())
         
         elif n == 2:
             # Each range >= 1.0 ATR
@@ -496,34 +502,45 @@ def validate_pattern_detailed(candles, atr, pattern):
                                candles[1]["low"] > candles[0]["low"])
             # Net move
             results['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
+            
+            # For 2 candles, keep original logic
+            overall = all(results.values())
         
         else:  # n >= 3
-            # Minimum bars with range >= threshold
+            # Core criteria for zone validation
+            core_criteria = {}
+            
+            # 1. Minimum bars with range >= threshold
             if "min_bars_range_atr" in rules:
                 bars_meeting = sum(1 for c in candles if range_atr(c["high"], c["low"], atr) >= rules["min_bars_range_atr"]["min"])
-                results['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
+                core_criteria['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
+                results['min_bars_range'] = core_criteria['min_bars_range']
             
-            # HH & HL sequence
+            # 2. HH & HL sequence
             if "hh_hl_sequence" in rules:
-                results['hh_hl_sequence'] = check_hh_hl_sequence(candles)
+                core_criteria['hh_hl_sequence'] = check_hh_hl_sequence(candles)
+                results['hh_hl_sequence'] = core_criteria['hh_hl_sequence']
             
-            # Net move
-            results['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
+            # 3. Net move
+            core_criteria['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
+            results['net_move'] = core_criteria['net_move']
             
-            # No bearish engulfing (n=4)
+            # Additional criteria (still calculated for reporting)
             if "no_bearish_engulfing" in rules:
                 results['no_bearish_engulfing'] = not check_bearish_engulfing(candles)
             
-            # Final close position (n=5)
             if "final_close_upper_pct" in rules:
                 final_range = candles[-1]["high"] - candles[-1]["low"]
                 if final_range > 0:
                     close_position = (candles[-1]["close"] - candles[-1]["low"]) / final_range
                     results['final_close_position'] = close_position >= (1 - rules["final_close_upper_pct"])
             
-            # Monotonic closes (n=6)
             if "monotonic_closes" in rules:
                 results['monotonic_closes'] = check_monotonic_closes(candles, direction="up")
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
+            satisfied_core = sum(1 for result in core_criteria.values() if result)
+            overall = satisfied_core >= 2
     
     elif pattern == "drop":
         # Drop pattern validation
@@ -535,6 +552,9 @@ def validate_pattern_detailed(candles, atr, pattern):
             if candle_range > 0:
                 close_position = (candles[0]["close"] - candles[0]["low"]) / candle_range
                 results['close_position'] = close_position <= rules["close_lower_pct"]
+            
+            # For single candle, keep original logic
+            overall = all(results.values())
         
         elif n == 2:
             # Each range >= 1.0 ATR
@@ -545,39 +565,48 @@ def validate_pattern_detailed(candles, atr, pattern):
             # Net move (for drop: first open - last close)
             net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr
             results['net_move'] = net_move >= rules["min_net_move_atr"]
+            
+            # For 2 candles, keep original logic
+            overall = all(results.values())
         
         else:  # n >= 3
-            # Minimum bars with range >= threshold
+            # Core criteria for zone validation
+            core_criteria = {}
+            
+            # 1. Minimum bars with range >= threshold
             if "min_bars_range_atr" in rules:
                 bars_meeting = sum(1 for c in candles if range_atr(c["high"], c["low"], atr) >= rules["min_bars_range_atr"]["min"])
-                results['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
+                core_criteria['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
+                results['min_bars_range'] = core_criteria['min_bars_range']
             
-            # LH & LL sequence
+            # 2. LH & LL sequence
             if "lh_ll_sequence" in rules:
-                results['lh_ll_sequence'] = check_lh_ll_sequence(candles)
+                core_criteria['lh_ll_sequence'] = check_lh_ll_sequence(candles)
+                results['lh_ll_sequence'] = core_criteria['lh_ll_sequence']
             
-            # Net move (for drop: first open - last close)
+            # 3. Net move
             net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr
-            results['net_move'] = net_move >= rules["min_net_move_atr"]
+            core_criteria['net_move'] = net_move >= rules["min_net_move_atr"]
+            results['net_move'] = core_criteria['net_move']
             
-            # No bullish engulfing (n=4)
+            # Additional criteria (still calculated for reporting)
             if "no_bullish_engulfing" in rules:
                 results['no_bullish_engulfing'] = not check_bullish_engulfing(candles)
             
-            # Final close position (n=5)
             if "final_close_lower_pct" in rules:
                 final_range = candles[-1]["high"] - candles[-1]["low"]
                 if final_range > 0:
                     close_position = (candles[-1]["close"] - candles[-1]["low"]) / final_range
                     results['final_close_position'] = close_position <= rules["final_close_lower_pct"]
             
-            # Monotonic closes (n=6)
             if "monotonic_closes" in rules:
                 results['monotonic_closes'] = check_monotonic_closes(candles, direction="down")
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
+            satisfied_core = sum(1 for result in core_criteria.values() if result)
+            overall = satisfied_core >= 2
     
-    overall = all(results.values())
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
-
 # --- UPDATED Plot function with removed title and no boundary dots ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     """Create enhanced combined chart with optimized spacing and clean pattern visualization"""
