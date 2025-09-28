@@ -246,7 +246,7 @@ def create_sound_alert():
 
 # ====== SECURE CONFIG ======
 # Use Streamlit secrets for credentials
-API_KEY = st.secrets.get("OANDA_API_KEY", "")
+API_KEY = st.secrets["OANDA2"]["API_KEY"]
 ACCOUNT_ID = st.secrets.get("OANDA_ACCOUNT_ID", "")
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
