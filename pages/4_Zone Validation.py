@@ -441,7 +441,8 @@ def check_bullish_engulfing(candles):
             return True
     return False
 
-# --- Core Validation with New Logic ---
+# ---core validation ----
+
 def validate_pattern_detailed(candles, atr, pattern):
     n = len(candles)
     if n < 1 or n > 6:
@@ -455,30 +456,63 @@ def validate_pattern_detailed(candles, atr, pattern):
     
     if pattern == "base":
         # Base pattern validation
-        if "max_range_atr" in rules:
-            results['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
+        if n == 1:
+            # Single criterion - keep original logic
+            if "max_range_atr" in rules:
+                results['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
+            overall = all(results.values())
         
-        if n == 2:
-            # Closes within ±0.25 ATR
-            close_diff = abs(candles[1]["close"] - candles[0]["close"]) / atr
-            results['close_diff'] = close_diff <= rules["max_close_diff_atr"]
+        elif n == 2:
+            # Core criteria for base zone validation (n=2)
+            core_criteria = {}
             
-            # No new high/low beyond first bar ±0.2 ATR
+            # 1. Range check
+            if "max_range_atr" in rules:
+                core_criteria['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
+                results['range_check'] = core_criteria['range_check']
+            
+            # 2. Close difference
+            close_diff = abs(candles[1]["close"] - candles[0]["close"]) / atr
+            core_criteria['close_diff'] = close_diff <= rules["max_close_diff_atr"]
+            results['close_diff'] = core_criteria['close_diff']
+            
+            # 3. No new extremes
             new_high = (candles[1]["high"] - candles[0]["high"]) / atr
             new_low = (candles[0]["low"] - candles[1]["low"]) / atr
-            results['no_new_extreme'] = (new_high <= rules["no_new_extreme_atr"] and 
-                                        new_low <= rules["no_new_extreme_atr"])
+            core_criteria['no_new_extreme'] = (new_high <= rules["no_new_extreme_atr"] and 
+                                              new_low <= rules["no_new_extreme_atr"])
+            results['no_new_extreme'] = core_criteria['no_new_extreme']
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
+            satisfied_core = sum(1 for result in core_criteria.values() if result)
+            overall = satisfied_core >= 2
         
-        if n >= 3:
+        else:  # n >= 3
+            # Core criteria for base zone validation (n>=3)
+            core_criteria = {}
+            
+            # 1. Range check
+            if "max_range_atr" in rules:
+                core_criteria['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
+                results['range_check'] = core_criteria['range_check']
+            
+            # 2. Extremes check
             if "max_extremes_atr" in rules:
-                results['extremes'] = extremes_atr(candles, atr) <= rules["max_extremes_atr"]
+                core_criteria['extremes'] = extremes_atr(candles, atr) <= rules["max_extremes_atr"]
+                results['extremes'] = core_criteria['extremes']
+            
+            # 3. Net move check
+            if "max_net_move_atr" in rules:
+                core_criteria['net_move'] = net_move_atr(candles, atr) <= rules["max_net_move_atr"]
+                results['net_move'] = core_criteria['net_move']
+            
+            # Additional criteria (still calculated for reporting)
             if "max_close_span_atr" in rules:
                 results['close_span'] = close_span_atr(candles, atr) <= rules["max_close_span_atr"]
-            if "max_net_move_atr" in rules:
-                results['net_move'] = net_move_atr(candles, atr) <= rules["max_net_move_atr"]
-        
-        # For base patterns, keep original logic
-        overall = all(results.values())
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
+            satisfied_core = sum(1 for result in core_criteria.values() if result)
+            overall = satisfied_core >= 2
     
     elif pattern == "rally":
         # Rally pattern validation
@@ -607,6 +641,7 @@ def validate_pattern_detailed(candles, atr, pattern):
             overall = satisfied_core >= 2
     
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
+
 # --- UPDATED Plot function with removed title and no boundary dots ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     """Create enhanced combined chart with optimized spacing and clean pattern visualization"""
