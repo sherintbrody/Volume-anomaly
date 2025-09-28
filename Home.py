@@ -241,7 +241,25 @@ def create_sound_alert():
     </script>
     """
     return sound_html
+    
+# --- Telegram secrets (open keys) ---
+TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
 
+def send_telegram_alert(message: str):
+    """Send a formatted alert message to Telegram."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        st.error(f"Telegram send failed: {e}")
+        
 # ====== SECURE CONFIG ======
 # Check if we have secrets (Streamlit Cloud) or use fallback
 try:
