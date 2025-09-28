@@ -494,7 +494,7 @@ def validate_pattern_detailed(candles, atr, pattern):
 
 # --- UPDATED Plot function with removed title and no boundary dots ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create enhanced combined chart with PROPER CANDLESTICK PROPORTIONS"""
+    """Create enhanced combined chart with proper candlestick proportions"""
     
     # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
@@ -502,57 +502,56 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     # Calculate optimal dimensions based on data
     num_candles = len(df)
     
-    # FIXED: Dynamic sizing based on number of candles
+    # Dynamic sizing based on number of candles
     if num_candles <= 20:
-        candle_width = 0.6  # Wider candles for fewer data points
+        candle_width = 0.6
         chart_height = 700
     elif num_candles <= 40:
-        candle_width = 0.5  # Medium width
+        candle_width = 0.5
         chart_height = 750
     else:
-        candle_width = 0.4  # Thinner for many candles
+        candle_width = 0.4
         chart_height = 800
     
     # Calculate price range for proper Y-axis scaling
     price_range = df['high'].max() - df['low'].min()
-    price_padding = price_range * 0.1  # 10% padding
+    price_padding = price_range * 0.1
     
-    # For ATR chart
+    # For ATR chart, use only data where ATR exists
     if len(df_with_atr) > 42:
         atr_data = df_with_atr.tail(42)
     else:
         atr_data = df_with_atr
     
+    # Remove any NaN values from ATR data
     atr_data = atr_data.dropna(subset=['atr']) if 'atr' in atr_data.columns else atr_data
     
-    # FIXED: Adjust row heights for better proportions
+    # Adjust row heights for better proportions
     rows = 2 if show_atr else 1
     if show_atr:
-        row_heights = [0.70, 0.30]  # More space for price chart
-        chart_height = 900  # Taller overall when ATR shown
+        row_heights = [0.70, 0.30]
+        chart_height = 900
     else:
         row_heights = [1.0]
-        chart_height = 650  # Single chart height
+        chart_height = 650
     
+    # Create subplots
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.02,  # Reduced spacing
+        vertical_spacing=0.03,
         row_heights=row_heights,
         subplot_titles=(
             None,
-            '<b style="color:#E74C3C; font-size:14px;">📈 ATR Indicator</b>'
+            '<b style="color:#E74C3C; font-size:16px;">📈 ATR Volatility Indicator (21-Period)</b>'
         ) if show_atr else (None,)
     )
     
-    # Enhanced candlestick with PROPER WIDTH
+    # Enhanced Price Chart with better colors
     bullish_color = '#00D4AA'
     bearish_color = '#FF6B6B'
     
-    # FIXED: Calculate appropriate candlestick width based on time interval
-    # For 4H candles, we need to set width in milliseconds
-    candle_width_ms = 4 * 60 * 60 * 1000 * candle_width  # 4 hours in ms * width factor
-    
+    # Main candlestick chart
     fig.add_trace(go.Candlestick(
         x=df['datetime_ist'],
         open=df['open'],
@@ -560,78 +559,216 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         low=df['low'],
         close=df['close'],
         name='OHLC Data',
-        increasing=dict(
-            line=dict(color=bullish_color, width=1),
-            fillcolor=bullish_color
-        ),
-        decreasing=dict(
-            line=dict(color=bearish_color, width=1),
-            fillcolor=bearish_color
-        ),
-        # FIXED: Set candlestick width properly
-        whiskerwidth=0,  # Remove whiskers for cleaner look
-        hoverlabel=dict(namelength=0),
+        increasing_line_color=bullish_color,
+        decreasing_line_color=bearish_color,
+        increasing_fillcolor=bullish_color,
+        decreasing_fillcolor=bearish_color,
+        line=dict(width=1.5),
         hoverinfo='all'
     ), row=1, col=1)
     
-    # FIXED: Manually adjust candlestick width using shapes for better control
-    for i in range(len(df)):
-        row = df.iloc[i]
-        
-        # Determine color
-        color = bullish_color if row['close'] >= row['open'] else bearish_color
-        
-        # Calculate candlestick body position
-        body_top = max(row['open'], row['close'])
-        body_bottom = min(row['open'], row['close'])
-        
-        # Add candlestick wick (thin line)
-        fig.add_shape(
-            type="line",
-            x0=row['datetime_ist'],
-            y0=row['low'],
-            x1=row['datetime_ist'],
-            y1=row['high'],
-            line=dict(color=color, width=1),
-            row=1, col=1
-        )
+    # Enhanced incomplete candles markers
+    if 'is_complete' in df.columns:
+        incomplete_df = df[~df['is_complete']]
+        if not incomplete_df.empty:
+            fig.add_trace(go.Scatter(
+                x=incomplete_df['datetime_ist'],
+                y=incomplete_df['high'] * 1.008,
+                mode='markers+text',
+                marker=dict(
+                    symbol='circle',
+                    size=16,
+                    color='#FF9500',
+                    line=dict(color='white', width=2)
+                ),
+                text='🔄',
+                textfont=dict(size=12),
+                textposition="middle center",
+                name='Forming Candle',
+                showlegend=True,
+                hovertemplate='<b>Status</b>: Candle Still Forming<br><extra></extra>'
+            ), row=1, col=1)
     
-    # Pattern boundary visualization (if selected)
+    # Pattern boundary visualization
     if selected_candles_df is not None and not selected_candles_df.empty:
+        # Get the boundary coordinates
         min_time = selected_candles_df['datetime_ist'].min()
         max_time = selected_candles_df['datetime_ist'].max()
         min_price = selected_candles_df['low'].min()
         max_price = selected_candles_df['high'].max()
         
-        # Add time buffer for rectangle (half candle width on each side)
-        time_buffer = pd.Timedelta(hours=2)  # Half of 4H candle
-        
+        # Add pattern boundary rectangle
         fig.add_shape(
             type="rect",
-            x0=min_time - time_buffer,
-            y0=min_price - (price_range * 0.02),
-            x1=max_time + time_buffer,
-            y1=max_price + (price_range * 0.02),
+            x0=min_time,
+            y0=min_price * 0.9985,
+            x1=max_time,
+            y1=max_price * 1.0015,
             line=dict(
                 color="#FFD700",
-                width=2,
+                width=3,
                 dash="dot"
             ),
-            fillcolor="rgba(255, 215, 0, 0.08)",
+            fillcolor="rgba(255, 215, 0, 0.1)",
+            row=1, col=1
+        )
+        
+        # Add pattern information annotation
+        pattern_info = f"Pattern: {len(selected_candles_df)} candles"
+        fig.add_annotation(
+            x=min_time,
+            y=max_price * 1.01,
+            text=f"<b>{pattern_info}</b>",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor='#FFD700',
+            font=dict(size=11, color='#FFD700', family="Arial"),
+            bgcolor='rgba(255, 215, 0, 0.2)',
+            bordercolor='#FFD700',
+            borderwidth=1,
+            borderpad=4,
             row=1, col=1
         )
     
-    # ATR Chart (if enabled)
+    # Enhanced ATR Chart
     if show_atr and 'atr' in atr_data.columns and not atr_data['atr'].isna().all():
-        # [ATR plotting code remains the same]
-        # ... (keeping existing ATR code)
+        # Create gradient background for ATR
+        fig.add_trace(go.Scatter(
+            x=atr_data['datetime_ist'],
+            y=atr_data['atr'],
+            mode='lines',
+            name='ATR Background',
+            line=dict(
+                color='rgba(46, 134, 193, 0)',
+                width=0
+            ),
+            fill='tozeroy',
+            fillcolor='rgba(46, 134, 193, 0.15)',
+            showlegend=False,
+            hoverinfo='skip'
+        ), row=2, col=1)
+        
+        # Main ATR line with enhanced styling
+        fig.add_trace(go.Scatter(
+            x=atr_data['datetime_ist'],
+            y=atr_data['atr'],
+            mode='lines+markers',
+            name='ATR (21)',
+            line=dict(
+                color='#2E86C1',
+                width=3,
+                shape='spline'
+            ),
+            marker=dict(
+                size=6,
+                color='#2E86C1',
+                line=dict(color='white', width=1)
+            ),
+            showlegend=True,
+            hovertemplate='<b>ATR Value</b>: %{y:.4f}<br><b>Time</b>: %{x}<br><extra></extra>'
+        ), row=2, col=1)
+        
+        # Enhanced projected ATR points
+        if 'atr_projected' in atr_data.columns:
+            projected_atr = atr_data[atr_data['atr_projected']]
+            if not projected_atr.empty:
+                fig.add_trace(go.Scatter(
+                    x=projected_atr['datetime_ist'],
+                    y=projected_atr['atr'],
+                    mode='markers',
+                    marker=dict(
+                        symbol='diamond',
+                        size=14,
+                        color='#F39C12',
+                        line=dict(color='white', width=2)
+                    ),
+                    name='ATR Projected',
+                    showlegend=True,
+                    hovertemplate='<b>Projected ATR</b>: %{y:.4f}<br><extra></extra>'
+                ), row=2, col=1)
+        
+        # Current ATR reference line
+        if not atr_data['atr'].isna().all():
+            current_atr_row = atr_data[~atr_data.get('atr_projected', False)]
+            if not current_atr_row.empty:
+                current_atr = current_atr_row['atr'].iloc[-1]
+            else:
+                current_atr = atr_data['atr'].iloc[-1]
+            
+            # Add horizontal reference line
+            fig.add_trace(go.Scatter(
+                x=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
+                y=[current_atr, current_atr],
+                mode='lines',
+                line=dict(
+                    color='#E74C3C',
+                    width=2,
+                    dash='dashdot'
+                ),
+                name='Current ATR',
+                showlegend=True,
+                hovertemplate=f'<b>Current ATR Level</b>: {current_atr:.4f}<br><extra></extra>'
+            ), row=2, col=1)
+            
+            # Enhanced annotation for current ATR
+            fig.add_annotation(
+                xref="paper",
+                yref="y2",
+                x=1.02,
+                y=current_atr,
+                text=f"<b>{current_atr:.4f}</b>",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=2,
+                arrowcolor='#E74C3C',
+                font=dict(size=12, color='#E74C3C', family="Arial Black"),
+                bgcolor='rgba(231, 76, 60, 0.15)',
+                bordercolor='#E74C3C',
+                borderwidth=2,
+                borderpad=4
+            )
+        
+        # ATR average line
+        atr_mean = atr_data['atr'].mean()
+        fig.add_trace(go.Scatter(
+            x=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
+            y=[atr_mean, atr_mean],
+            mode='lines',
+            line=dict(
+                color='#9B59B6',
+                width=1.5,
+                dash='dash'
+            ),
+            name='ATR Average',
+            showlegend=True,
+            hovertemplate=f'<b>ATR Average</b>: {atr_mean:.4f}<br><extra></extra>'
+        ), row=2, col=1)
+        
+        # Set ATR y-axis range to eliminate blank space
+        atr_min = atr_data['atr'].min() * 0.95
+        atr_max = atr_data['atr'].max() * 1.05
+        
+        fig.update_yaxes(
+            range=[atr_min, atr_max],
+            row=2, col=1,
+            fixedrange=False
+        )
+        
+        # Set ATR x-axis range to start from where data begins
+        fig.update_xaxes(
+            range=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
+            row=2, col=1
+        )
     
-    # FIXED: Enhanced layout with proper dimensions
+    # Enhanced Layout with modern dashboard styling
     fig.update_layout(
         height=chart_height,
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0.05)',
+        plot_bgcolor='rgba(0,0,0,0)',
         showlegend=True,
         legend=dict(
             orientation="h",
@@ -639,131 +776,71 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             y=1.02,
             xanchor="center",
             x=0.5,
-            bgcolor='rgba(255, 255, 255, 0.05)',
-            bordercolor='rgba(255, 255, 255, 0.1)',
+            bgcolor='rgba(255, 255, 255, 0.1)',
+            bordercolor='rgba(255, 255, 255, 0.2)',
             borderwidth=1,
-            font=dict(size=10),
+            font=dict(size=11, color='white'),
+            itemsizing="constant"
         ),
         hovermode='x unified',
-        # FIXED: Adjusted margins for better space utilization
-        margin=dict(l=80, r=80, t=100, b=60),
+        margin=dict(l=70, r=100, t=100, b=60),
         font=dict(
             family="Arial, sans-serif",
-            size=11,
+            size=12,
             color="white"
-        ),
-        # FIXED: Disable autosize to maintain proportions
-        autosize=False,
-        width=None,  # Let Streamlit handle width
-    )
-    
-    # FIXED: Price axis with proper range and formatting
-    y_min = df['low'].min() - price_padding
-    y_max = df['high'].max() + price_padding
-    
-    fig.update_yaxes(
-        title_text="<b>Price</b>",
-        row=1, col=1,
-        # FIXED: Set specific range for consistent proportions
-        range=[y_min, y_max],
-        # FIXED: Add tick formatting based on price magnitude
-        tickformat=".4f" if y_max < 10 else ".2f" if y_max < 1000 else ".0f",
-        showgrid=True,
-        gridwidth=0.5,
-        gridcolor='rgba(255, 255, 255, 0.05)',
-        showline=True,
-        linewidth=1,
-        linecolor='rgba(255, 255, 255, 0.2)',
-        title_font=dict(size=12),
-        tickfont=dict(size=10),
-        # FIXED: Constrain aspect ratio
-        constrain="domain",
-        constraintoward="middle",
-        # Add minor ticks for better readability
-        minor=dict(
-            showgrid=True,
-            gridcolor='rgba(255, 255, 255, 0.02)',
-            gridwidth=0.5
         )
     )
     
-    # FIXED: X-axis time formatting with proper spacing
+    # Enhanced axes styling
     fig.update_xaxes(
         title_text="<b>Time (IST)</b>",
         row=rows, col=1,
         showgrid=True,
-        gridwidth=0.5,
-        gridcolor='rgba(255, 255, 255, 0.05)',
+        gridwidth=1,
+        gridcolor='rgba(255, 255, 255, 0.1)',
         showline=True,
-        linewidth=1,
-        linecolor='rgba(255, 255, 255, 0.2)',
-        # FIXED: Better time formatting
-        tickformat="%d %b\n%H:%M",
-        # FIXED: Limit number of ticks to prevent crowding
-        nticks=20 if num_candles > 40 else 15 if num_candles > 20 else 10,
-        title_font=dict(size=12),
-        tickfont=dict(size=9),
-        # FIXED: Add range selector for zoom control
-        rangeselector=dict(
-            buttons=list([
-                dict(count=6, label="6H", step="hour", stepmode="backward"),
-                dict(count=12, label="12H", step="hour", stepmode="backward"),
-                dict(count=1, label="1D", step="day", stepmode="backward"),
-                dict(count=3, label="3D", step="day", stepmode="backward"),
-                dict(step="all", label="All")
-            ]),
-            bgcolor='rgba(255, 255, 255, 0.05)',
-            activecolor='rgba(255, 215, 0, 0.2)',
-            font=dict(size=9, color='white'),
-            y=1.05
-        ),
+        linewidth=2,
+        linecolor='rgba(255, 255, 255, 0.3)',
+        title_font=dict(size=14, color='white'),
+        tickfont=dict(size=11, color='white')
     )
     
-    # FIXED: Remove range slider but add zoom/pan
-    fig.update_layout(
-        xaxis_rangeslider_visible=False,
-        dragmode='zoom',  # Default to zoom mode
-        selectdirection='diagonal',
-        # Add modebar buttons for better interaction
-        modebar=dict(
-            bgcolor='rgba(0, 0, 0, 0)',
-            color='rgba(255, 255, 255, 0.7)',
-            activecolor='rgba(255, 215, 0, 1)',
+    # Price axis styling with proper range
+    y_min = df['low'].min() - price_padding
+    y_max = df['high'].max() + price_padding
+    
+    fig.update_yaxes(
+        title_text="<b>Price Level</b>",
+        row=1, col=1,
+        range=[y_min, y_max],
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(255, 255, 255, 0.1)',
+        showline=True,
+        linewidth=2,
+        linecolor='rgba(255, 255, 255, 0.3)',
+        title_font=dict(size=14, color='white'),
+        tickfont=dict(size=11, color='white')
+    )
+    
+    # ATR axis styling
+    if show_atr:
+        fig.update_yaxes(
+            title_text="<b>ATR Value</b>",
+            row=2, col=1,
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(255, 255, 255, 0.1)',
+            showline=True,
+            linewidth=2,
+            linecolor='rgba(255, 255, 255, 0.3)',
+            tickformat='.4f',
+            title_font=dict(size=14, color='white'),
+            tickfont=dict(size=11, color='white')
         )
-    )
     
-    # FIXED: Add responsive behavior for different screen sizes
-    fig.update_layout(
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="left",
-                x=0.01,
-                y=0.99,
-                buttons=list([
-                    dict(
-                        label="🔍 Zoom",
-                        method="relayout",
-                        args=["dragmode", "zoom"]
-                    ),
-                    dict(
-                        label="✋ Pan",
-                        method="relayout",
-                        args=["dragmode", "pan"]
-                    ),
-                    dict(
-                        label="🔄 Reset",
-                        method="relayout",
-                        args=["xaxis.range", None]
-                    )
-                ]),
-                bgcolor='rgba(255, 255, 255, 0.05)',
-                bordercolor='rgba(255, 255, 255, 0.2)',
-                borderwidth=1,
-                font=dict(size=10, color='white')
-            ),
-        ]
-    )
+    # Remove rangeslider for cleaner look
+    fig.update_layout(xaxis_rangeslider_visible=False)
     
     return fig
 # --- Enhanced Result Display Component ---
