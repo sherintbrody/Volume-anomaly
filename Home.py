@@ -1,6 +1,6 @@
-
-
-import requests, json, os
+import requests
+import json
+import os
 import streamlit as st
 from datetime import datetime, timedelta, time
 import pytz
@@ -8,67 +8,268 @@ import pandas as pd
 from collections import defaultdict
 import wcwidth
 from streamlit_autorefresh import st_autorefresh
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time as time_module
+import base64
+from functools import lru_cache, wraps
+import hashlib
 
 # ====== PAGE CONFIG ======
 st.set_page_config(
-    page_title="Volume Spike Dashboard",
+    page_title="Volume Spike Dashboard Pro",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ====== THEME/STYLE ======
-BADGE_CSS = """
+# ====== MODERN THEME & ANIMATIONS ======
+MODERN_CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
-    --chip-bg: rgba(2,132,199,.12);
-    --chip-fg: #0284c7;
-    --chip-br: rgba(2,132,199,.25);
-    --chip2-bg: rgba(148,163,184,.12);
-    --chip2-fg: #334155;
-    --chip2-br: rgba(148,163,184,.25);
-    --ok-bg: rgba(16,185,129,.12);
-    --ok-fg: #059669;
-    --ok-br: rgba(16,185,129,.25);
-    --warn-bg: rgba(234,179,8,.12);
-    --warn-fg: #a16207;
-    --warn-br: rgba(234,179,8,.25);
+    --primary-color: #6366f1;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --danger-color: #ef4444;
+    --dark-bg: #0f172a;
+    --card-bg: #1e293b;
+    --border-color: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
-.badges { margin: 2px 0 12px 0; }
+
+/* Modern Card Design */
+.stApp {
+    font-family: 'Inter', sans-serif;
+}
+
+div[data-testid="stHorizontalBlock"] {
+    gap: 1rem;
+}
+
+div[data-testid="column"] {
+    background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+    padding: 1.5rem;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    box-shadow: var(--shadow-lg);
+    transition: all 0.3s ease;
+}
+
+div[data-testid="column"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.2);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+/* Animated Badges */
 .badge {
-    display:inline-block;
-    padding:4px 10px;
-    border-radius:999px;
-    font-size:12px;
-    background: var(--chip-bg);
-    color: var(--chip-fg);
-    margin-right:6px;
-    border:1px solid var(--chip-br)
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: slideIn 0.5s ease;
+    position: relative;
+    overflow: hidden;
 }
-.badge.neutral {
-    background: var(--chip2-bg);
-    color:var(--chip2-fg);
-    border-color:var(--chip2-br);
+
+.badge::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: left 0.5s;
 }
-.badge.ok {
-    background: var(--ok-bg);
-    color:var(--ok-fg);
-    border-color:var(--ok-br);
+
+.badge:hover::before {
+    left: 100%;
 }
-.badge.warn {
-    background: var(--warn-bg);
-    color:var(--warn-fg);
-    border-color:var(--warn-br);
+
+.badge.primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);
 }
-.section-title { margin: 0 0 4px 0; }
+
+.badge.success {
+    background: linear-gradient(135deg, #10b981, #34d399);
+    color: white;
+    box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+}
+
+.badge.warning {
+    background: linear-gradient(135deg, #f59e0b, #fbbf24);
+    color: white;
+    box-shadow: 0 4px 6px rgba(245, 158, 11, 0.3);
+}
+
+.badge.danger {
+    background: linear-gradient(135deg, #ef4444, #f87171);
+    color: white;
+    box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
+}
+
+.badge.info {
+    background: linear-gradient(135deg, #3b82f6, #60a5fa);
+    color: white;
+    box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+}
+
+/* Pulse Animation for Alerts */
+.pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Modern Metrics */
+div[data-testid="metric-container"] {
+    background: linear-gradient(145deg, #1e293b, #334155);
+    padding: 1rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    transition: all 0.3s ease;
+}
+
+div[data-testid="metric-container"]:hover {
+    transform: scale(1.02);
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Glowing Effect for Spike Alerts */
+.spike-alert {
+    animation: glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+    from { box-shadow: 0 0 10px #ef4444; }
+    to { box-shadow: 0 0 20px #ef4444, 0 0 30px #ef4444; }
+}
+
+/* Modern Table Styling */
+div[data-testid="stDataFrame"] {
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading Animation */
+.loading-bar {
+    height: 4px;
+    background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #6366f1 100%);
+    background-size: 200% 100%;
+    animation: loading 1.5s linear infinite;
+    border-radius: 2px;
+}
+
+@keyframes loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Notification Style */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #ef4444, #f87171);
+    color: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(239, 68, 68, 0.3);
+    animation: slideInRight 0.5s ease;
+    z-index: 1000;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
 </style>
 """
-st.markdown(BADGE_CSS, unsafe_allow_html=True)
 
-# ====== CONFIG ======
-# IMPORTANT: Move these to environment variables or .streamlit/secrets.toml
-API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
-ACCOUNT_ID = "101-004-37091392-001"
+st.markdown(MODERN_CSS, unsafe_allow_html=True)
+
+# ====== SOUND ALERT SETUP ======
+def create_sound_alert():
+    """Generate base64 encoded sound alert"""
+    sound_html = """
+    <audio id="spike-alert-sound" style="display: none;">
+        <source src="data:audio/wav;base64,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" type="audio/wav">
+    </audio>
+    <script>
+        function playAlert() {
+            var audio = document.getElementById('spike-alert-sound');
+            audio.play();
+        }
+    </script>
+    """
+    return sound_html
+
+# ====== SECURE CONFIG ======
+# Check if we have secrets (Streamlit Cloud) or use fallback
+try:
+    API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
+    ACCOUNT_ID = "101-004-37091392-001"
+    BASE_URL = "https://api-fxpractice.oanda.com/v3"
+    TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+except:
+    # Fallback for local development - REMOVE THESE IN PRODUCTION
+    API_KEY = os.environ.get("OANDA_API_KEY", "")
+    ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "")
+    TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+if not API_KEY or not ACCOUNT_ID:
+    st.error("⚠️ Please configure OANDA_API_KEY and OANDA_ACCOUNT_ID in .streamlit/secrets.toml")
+    st.info("""
+    Create a file `.streamlit/secrets.toml` with:
+    ```
+    OANDA_API_KEY = "your-api-key"
+    OANDA_ACCOUNT_ID = "your-account-id"
+    TELEGRAM_BOT_TOKEN = "optional-bot-token"
+    TELEGRAM_CHAT_ID = "optional-chat-id"
+    ```
+    """)
+    st.stop()
+
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 INSTRUMENTS = {
@@ -83,12 +284,115 @@ headers = {"Authorization": f"Bearer {API_KEY}"}
 
 ALERT_STATE_FILE = "last_alert_state.json"
 ALERT_DATE_FILE = "last_alert_date.txt"
-
-# How many candles to display in the table
 DISPLAY_ROWS = 13
-
-# Number of trading days to use for averaging
 TRADING_DAYS_FOR_AVERAGE = 21
+
+# ====== PERFORMANCE OPTIMIZATION ======
+class RateLimiter:
+    """Rate limiter for API calls"""
+    def __init__(self, calls_per_second=2):
+        self.calls_per_second = calls_per_second
+        self.last_call = 0
+        self.min_interval = 1.0 / calls_per_second
+    
+    def wait_if_needed(self):
+        elapsed = time_module.time() - self.last_call
+        if elapsed < self.min_interval:
+            time_module.sleep(self.min_interval - elapsed)
+        self.last_call = time_module.time()
+
+rate_limiter = RateLimiter(calls_per_second=2)
+
+# ====== ENHANCED CACHING ======
+def cache_key_generator(*args, **kwargs):
+    """Generate cache key for complex arguments"""
+    key_str = str(args) + str(sorted(kwargs.items()))
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+def smart_cache(ttl_seconds=300):
+    """Smart caching decorator with TTL"""
+    def decorator(func):
+        cache = {}
+        cache_time = {}
+        
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            key = cache_key_generator(*args, **kwargs)
+            now = time_module.time()
+            
+            if key in cache and (now - cache_time[key]) < ttl_seconds:
+                return cache[key]
+            
+            result = func(*args, **kwargs)
+            cache[key] = result
+            cache_time[key] = now
+            return result
+        
+        return wrapper
+    return decorator
+
+# ====== BATCH API CALLS ======
+def batch_fetch_candles(instruments, from_time, to_time, granularity="M15"):
+    """Fetch candles for multiple instruments in parallel"""
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {}
+        for name, code in instruments.items():
+            future = executor.submit(
+                fetch_candles_optimized, 
+                code, from_time, to_time, granularity
+            )
+            futures[future] = name
+        
+        results = {}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                st.error(f"Error fetching {name}: {e}")
+                results[name] = []
+        
+        return results
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_candles_optimized(instrument_code, from_time, to_time, granularity="M15"):
+    """Optimized candle fetching with rate limiting and retry"""
+    rate_limiter.wait_if_needed()
+    
+    # Ensure times are UTC
+    now_utc = datetime.now(UTC)
+    from_time = min(from_time, now_utc)
+    to_time = min(to_time, now_utc)
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            params = {
+                "granularity": granularity,
+                "price": "M",
+                "from": from_time.isoformat(),
+                "to": to_time.isoformat()
+            }
+            url = f"{BASE_URL}/accounts/{ACCOUNT_ID}/instruments/{instrument_code}/candles"
+            
+            resp = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            if resp.status_code == 200:
+                return resp.json().get("candles", [])
+            elif attempt < max_retries - 1:
+                time_module.sleep(2 ** attempt)
+            else:
+                st.error(f"API Error: {resp.status_code} - {resp.text}")
+                return []
+                
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time_module.sleep(2 ** attempt)
+            else:
+                st.error(f"Network error: {e}")
+                return []
+    
+    return []
 
 # ====== ALERT MEMORY ======
 def load_alerted_candles():
@@ -116,9 +420,9 @@ def reset_if_new_day():
         f.write(today)
 
 # ====== SIDEBAR CONFIG ======
-st.sidebar.title("🔧 Settings")
+st.sidebar.markdown("## ⚙️ **Control Panel**")
 
-# Initialize all session state variables
+# Initialize session state
 if "selected_instruments" not in st.session_state:
     st.session_state.selected_instruments = list(INSTRUMENTS.keys())
 if "refresh_minutes" not in st.session_state:
@@ -127,67 +431,80 @@ if "bucket_choice" not in st.session_state:
     st.session_state.bucket_choice = "1 hour"
 if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
+if "enable_sound_alerts" not in st.session_state:
+    st.session_state.enable_sound_alerts = True
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"
 if "skip_weekends" not in st.session_state:
     st.session_state.skip_weekends = True
+if "show_charts" not in st.session_state:
+    st.session_state.show_charts = True
 
-# Optional: provide Telegram secrets via Streamlit Cloud
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
-
-st.sidebar.multiselect(
-    "Select Instruments to Monitor",
-    options=list(INSTRUMENTS.keys()),
-    default=st.session_state.selected_instruments,
-    key="selected_instruments"
-)
-
-st.sidebar.slider(
-    "Auto-refresh interval (minutes)",
-    min_value=1, max_value=15,
-    value=st.session_state.refresh_minutes,
-    key="refresh_minutes"
-)
-
-st.sidebar.radio(
-    "📏 Candle Size",
-    ["15 min", "4 hour"],
-    index=["15 min", "4 hour"].index(st.session_state.candle_size),
-    key="candle_size"
-)
-
-if st.session_state.candle_size == "15 min":
-    st.sidebar.radio(
-        "🕒 Select Time Bucket",
-        ["15 min", "30 min", "1 hour"],
-        index=["15 min", "30 min", "1 hour"].index(st.session_state.bucket_choice),
-        key="bucket_choice"
+with st.sidebar.expander("📊 **Instruments**", expanded=True):
+    st.multiselect(
+        "Select to Monitor",
+        options=list(INSTRUMENTS.keys()),
+        default=st.session_state.selected_instruments,
+        key="selected_instruments"
     )
-else:
-    st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
-st.sidebar.toggle(
-    "Enable Telegram Alerts",
-    value=st.session_state.enable_telegram_alerts,
-    key="enable_telegram_alerts"
-)
+with st.sidebar.expander("⏱️ **Timing Settings**", expanded=True):
+    st.slider(
+        "Auto-refresh (minutes)",
+        min_value=1, max_value=15,
+        value=st.session_state.refresh_minutes,
+        key="refresh_minutes"
+    )
+    
+    st.radio(
+        "Candle Size",
+        ["15 min", "4 hour"],
+        index=["15 min", "4 hour"].index(st.session_state.candle_size),
+        key="candle_size"
+    )
+    
+    if st.session_state.candle_size == "15 min":
+        st.radio(
+            "Time Bucket",
+            ["15 min", "30 min", "1 hour"],
+            index=["15 min", "30 min", "1 hour"].index(st.session_state.bucket_choice),
+            key="bucket_choice"
+        )
 
-st.sidebar.slider(
-    "📈 Threshold Multiplier",
-    min_value=1.0,
-    max_value=3.0,
-    step=0.1,
-    value=1.618,
-    key="threshold_multiplier"
-)
+with st.sidebar.expander("🔔 **Alerts**", expanded=True):
+    st.toggle(
+        "🔊 Sound Alerts",
+        value=st.session_state.enable_sound_alerts,
+        key="enable_sound_alerts"
+    )
+    
+    st.toggle(
+        "📱 Telegram Alerts",
+        value=st.session_state.enable_telegram_alerts,
+        key="enable_telegram_alerts"
+    )
+    
+    st.slider(
+        "Threshold Multiplier",
+        min_value=1.0,
+        max_value=3.0,
+        step=0.1,
+        value=1.618,
+        key="threshold_multiplier"
+    )
 
-st.sidebar.toggle(
-    "Skip Weekends in Average",
-    value=st.session_state.skip_weekends,
-    key="skip_weekends",
-    help="When ON, uses only trading days (Mon-Fri) for volume averages"
-)
+with st.sidebar.expander("📈 **Display Options**", expanded=False):
+    st.toggle(
+        "Show Charts",
+        value=st.session_state.show_charts,
+        key="show_charts"
+    )
+    
+    st.toggle(
+        "Skip Weekends",
+        value=st.session_state.skip_weekends,
+        key="skip_weekends"
+    )
 
 # ====== AUTO-REFRESH ======
 refresh_ms = st.session_state.refresh_minutes * 60 * 1000
@@ -198,80 +515,37 @@ def send_telegram_alert(message):
     if not st.session_state.enable_telegram_alerts:
         return
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        st.warning("Telegram is ON but secrets missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
         return
+    
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
         resp = requests.post(url, data=payload, timeout=10)
-        if resp.status_code != 200:
-            st.error(f"Telegram alert failed: {resp.text}")
-    except Exception as e:
-        st.error(f"Telegram alert exception: {e}")
+    except:
+        pass
 
-# ====== OANDA DATA FETCH ======
-@st.cache_resource
-def get_session():
-    s = requests.Session()
-    s.headers.update(headers)
-    return s
+# ====== DATA PROCESSING ======
+def get_market_session(dt_ist):
+    """Identify current market session"""
+    hour = dt_ist.hour
+    if 5 <= hour < 13:
+        return "🌏 Asian", "info"
+    elif 13 <= hour < 17:
+        return "🌍 European", "primary"
+    elif 17 <= hour < 22:
+        return "🌎 US", "warning"
+    else:
+        return "🌙 After Hours", "secondary"
 
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
-    now_utc = datetime.now(UTC)
-    from_time = min(from_time, now_utc)
-    to_time = min(to_time, now_utc)
-    
-    params = {
-        "granularity": granularity,
-        "price": "M",
-        "from": from_time.isoformat(),
-        "to": to_time.isoformat()
-    }
-    url = f"{BASE_URL}/accounts/{ACCOUNT_ID}/instruments/{instrument_code}/candles"
-    try:
-        s = get_session()
-        resp = s.get(url, params=params, timeout=20)
-    except Exception as e:
-        st.error(f"❌ Network error for {instrument_code}: {e}")
-        return []
-    
-    if resp.status_code != 200:
-        st.error(f"❌ Failed to fetch {instrument_code} data: {resp.text}")
-        return []
-    return resp.json().get("candles", [])
-
-# ====== UTILITIES ======
 def get_time_bucket(dt_ist, bucket_size_minutes):
-    """Calculate time bucket for 15-minute mode"""
     bucket_start_minute = (dt_ist.minute // bucket_size_minutes) * bucket_size_minutes
     bucket_start = dt_ist.replace(minute=bucket_start_minute, second=0, microsecond=0)
     bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
     return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
 
 def get_4h_time_range(dt_ist):
-    """Get the actual 4-hour time range starting from the candle's opening time"""
     end_time = dt_ist + timedelta(hours=4)
     return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
-
-def get_candle_position_in_day(dt_ist):
-    """Get the position of a 4H candle in the day (1st, 2nd, 3rd, etc.)"""
-    day_start = dt_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-    hours_since_start = (dt_ist - day_start).total_seconds() / 3600
-    position = int(hours_since_start // 4) + 1
-    return f"Candle #{position}"
-
-def format_bucket_label(minutes):
-    if minutes == 240:
-        return "4 hour"
-    elif minutes % 60 == 0:
-        h = minutes // 60
-        return f"{h} hour" if h == 1 else f"{h} hours"
-    return f"{minutes} min"
-
-def is_weekend(date):
-    """Check if a date is Saturday (5) or Sunday (6)"""
-    return date.weekday() in [5, 6]
 
 def get_sentiment(candle):
     o = float(candle["mid"]["o"])
@@ -279,50 +553,32 @@ def get_sentiment(candle):
     return "🟩" if c > o else "🟥" if c < o else "▪️"
 
 def get_body_percentage(candle):
-    """Calculate the body percentage of a candle (4H only)"""
     try:
         o = float(candle["mid"]["o"])
         h = float(candle["mid"]["h"])
         l = float(candle["mid"]["l"])
         c = float(candle["mid"]["c"])
-        
-        # Calculate body and total range
         body = abs(c - o)
         total_range = h - l
-        
-        # Avoid division by zero
         if total_range == 0:
             return "0.0%"
-        
-        # Calculate body percentage
         body_pct = (body / total_range) * 100
-        
-        # Return formatted percentage
         return f"{body_pct:.1f}%"
     except:
         return "—"
 
-def pad_display(s, width):
-    pad_len = width - sum(wcwidth.wcwidth(ch) for ch in s)
-    return s + " " * max(pad_len, 0)
-
-def get_spike_bar(multiplier):
-    if multiplier < 1.2:
-        return pad_display("", 5)
-    bars = int((multiplier - 1.2) * 5)
-    bar_str = "┃" * max(1, min(bars, 5))
-    return pad_display(bar_str, 5)
+def is_weekend(date):
+    return date.weekday() in [5, 6]
 
 @st.cache_data(ttl=600)
-def compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=True):
-    """Compute averages for comparison"""
+def compute_lazy_averages(code, bucket_size_minutes, granularity, skip_weekends=True):
+    """Lazy load and compute averages"""
     if granularity == "H4":
         return compute_4h_position_averages(code, skip_weekends)
     else:
         return compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends)
 
 def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
-    """Time-bucket based averaging for 15-minute mode, collecting last N trading days"""
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
@@ -344,7 +600,7 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
         start_utc = start_ist.astimezone(UTC)
         end_utc = min(end_ist.astimezone(UTC), now_utc)
         
-        candles = fetch_candles(code, start_utc, end_utc, granularity="M15")
+        candles = fetch_candles_optimized(code, start_utc, end_utc, granularity="M15")
         
         if candles:
             trading_days_collected += 1
@@ -365,7 +621,6 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
 def compute_4h_position_averages(code, skip_weekends=True):
-    """Position-based averaging for 4H mode, collecting last N trading days"""
     position_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
@@ -387,7 +642,7 @@ def compute_4h_position_averages(code, skip_weekends=True):
         start_utc = start_ist.astimezone(UTC)
         end_utc = min(end_ist.astimezone(UTC), now_utc)
         
-        candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
+        candles = fetch_candles_optimized(code, start_utc, end_utc, granularity="H4")
         
         if candles:
             trading_days_collected += 1
@@ -407,9 +662,101 @@ def compute_4h_position_averages(code, skip_weekends=True):
     
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
-# ====== CORE PROCESS ======
-def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
-    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=st.session_state.skip_weekends)
+# ====== CHART CREATION ======
+def create_volume_chart(name, rows, threshold, is_spike):
+    """Create modern interactive volume chart"""
+    if not rows or not st.session_state.show_charts:
+        return None
+    
+    # Convert rows to DataFrame
+    df_data = []
+    for row in rows[-20:]:
+        df_data.append({
+            "Time": row[0],
+            "Open": float(row[2]),
+            "High": float(row[3]),
+            "Low": float(row[4]),
+            "Close": float(row[5]),
+            "Volume": row[6],
+            "Spike": row[7],
+            "Sentiment": row[8]
+        })
+    
+    df = pd.DataFrame(df_data)
+    
+    fig = make_subplots(
+        rows=2, cols=1,
+        row_heights=[0.7, 0.3],
+        vertical_spacing=0.03,
+        subplot_titles=(f"{name} Price", "Volume Analysis")
+    )
+    
+    # Candlestick chart
+    fig.add_trace(
+        go.Candlestick(
+            x=df["Time"],
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            name="Price",
+            increasing_line_color='#10b981',
+            decreasing_line_color='#ef4444'
+        ),
+        row=1, col=1
+    )
+    
+    # Volume bars with spike highlighting
+    colors = ['#ef4444' if spike else '#6366f1' for spike in df["Spike"]]
+    
+    fig.add_trace(
+        go.Bar(
+            x=df["Time"],
+            y=df["Volume"],
+            name="Volume",
+            marker_color=colors,
+            hovertemplate='Volume: %{y}<br>Time: %{x}<extra></extra>'
+        ),
+        row=2, col=1
+    )
+    
+    # Add threshold line
+    fig.add_hline(
+        y=threshold,
+        line_dash="dash",
+        line_color="orange",
+        annotation_text=f"Threshold: {threshold:.0f}",
+        row=2, col=1
+    )
+    
+    # Update layout for modern look
+    fig.update_layout(
+        template="plotly_dark",
+        height=500,
+        showlegend=False,
+        hovermode='x unified',
+        margin=dict(l=0, r=0, t=30, b=0),
+        paper_bgcolor='rgba(30, 41, 59, 0.5)',
+        plot_bgcolor='rgba(30, 41, 59, 0.5)',
+        font=dict(color='#94a3b8')
+    )
+    
+    # Hide x-axis labels and ticks completely
+    fig.update_xaxes(
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False
+    )
+    
+    # Keep y-axis grid styling
+    fig.update_yaxes(gridcolor='rgba(51, 65, 85, 0.3)')
+    
+    return fig
+
+# ====== MAIN PROCESSING ======
+def process_instrument_optimized(name, code, bucket_size_minutes, granularity, alerted_candles):
+    """Optimized instrument processing with lazy loading"""
+    bucket_avg = compute_lazy_averages(code, bucket_size_minutes, granularity, skip_weekends=st.session_state.skip_weekends)
     now_utc = datetime.now(UTC)
     is_4h_mode = (granularity == "H4")
     
@@ -417,14 +764,15 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
     candles_needed = 40 if granularity == "M15" else 26
     from_time = now_utc - timedelta(minutes=per_candle_minutes * candles_needed)
     
-    candles = fetch_candles(code, from_time, now_utc, granularity=granularity)
+    candles = fetch_candles_optimized(code, from_time, now_utc, granularity=granularity)
     if not candles:
-        return [], [], {}
+        return [], [], {}, 0
     
     rows = []
     spikes_last_two = []
     last_two_candles = candles[-2:] if len(candles) >= 2 else candles
     last_summary = {}
+    threshold_value = 0
     
     for c in candles:
         try:
@@ -435,48 +783,31 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         
         if is_4h_mode:
             bucket = get_4h_time_range(t_ist)
-            display_bucket = bucket
         else:
             bucket = get_time_bucket(t_ist, bucket_size_minutes)
-            display_bucket = bucket
         
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
         threshold_multiplier = st.session_state.threshold_multiplier
         threshold = avg * threshold_multiplier if avg else 0
+        threshold_value = threshold
         over = (threshold > 0 and vol > threshold)
         mult = (vol / threshold) if over and threshold > 0 else (vol / avg if avg else 0)
         
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
         sentiment = get_sentiment(c)
         
-        # Build row based on mode
-        if is_4h_mode:
-            body_pct = get_body_percentage(c)
-            rows.append([
-                t_ist.strftime("%Y-%m-%d %I:%M %p"),
-                display_bucket,
-                f"{float(c['mid']['o']):.1f}",
-                f"{float(c['mid']['h']):.1f}",
-                f"{float(c['mid']['l']):.1f}",
-                f"{float(c['mid']['c']):.1f}",
-                vol,
-                spike_diff,
-                sentiment,
-                body_pct  # New column for 4H mode
-            ])
-        else:
-            rows.append([
-                t_ist.strftime("%Y-%m-%d %I:%M %p"),
-                display_bucket,
-                f"{float(c['mid']['o']):.1f}",
-                f"{float(c['mid']['h']):.1f}",
-                f"{float(c['mid']['l']):.1f}",
-                f"{float(c['mid']['c']):.1f}",
-                vol,
-                spike_diff,
-                sentiment
-            ])
+        rows.append([
+            t_ist.strftime("%Y-%m-%d %I:%M %p"),
+            bucket,
+            f"{float(c['mid']['o']):.1f}",
+            f"{float(c['mid']['h']):.1f}",
+            f"{float(c['mid']['l']):.1f}",
+            f"{float(c['mid']['c']):.1f}",
+            vol,
+            over,
+            sentiment
+        ])
         
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
@@ -492,99 +823,132 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         if c in last_two_candles and over:
             candle_id = f"{name}_{c['time']}_{round(float(c['mid']['o']), 2)}"
             if candle_id not in alerted_candles:
-                spikes_last_two.append(
-                    f"{name} {t_ist.strftime('%I:%M %p')} — Vol {vol} ({spike_diff}) {sentiment}"
-                )
+                spikes_last_two.append({
+                    "name": name,
+                    "time": t_ist.strftime('%I:%M %p'),
+                    "volume": vol,
+                    "spike": spike_diff,
+                    "sentiment": sentiment
+                })
                 alerted_candles.add(candle_id)
     
-    return rows, spikes_last_two, last_summary
+    return rows, spikes_last_two, last_summary, threshold_value
 
-# ====== TABLE RENDERING ======
-def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
-    st.markdown(f"### {name}", help="Instrument")
+def render_modern_card(name, rows, bucket_minutes, summary, threshold, is_4h_mode=False):
+    """Render modern instrument card with enhanced UI"""
     
-    if is_4h_mode:
-        bucket_lbl = "Time Range"
-        comparison_label = "4 Hour Mode"
-    else:
-        bucket_lbl = format_bucket_label(bucket_minutes)
-        comparison_label = f"Bucket: {bucket_lbl}"
+    # Header with gradient background
+    st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 12px 20px; 
+                    border-radius: 12px 12px 0 0; 
+                    margin: -15px -15px 20px -15px;">
+            <h3 style="color: white; margin: 0;">{name}</h3>
+        </div>
+    """, unsafe_allow_html=True)
     
+    # Market session
+    session, session_type = get_market_session(datetime.now(IST))
+    
+    # Status badges
     if summary:
-        chips = [
-            f'<span class="badge neutral">{comparison_label}</span>',
-            f'<span class="badge neutral">Last: {summary["time"]}</span>',
-            f'<span class="badge {"ok" if summary["over"] else "neutral"}">Spike: {"Yes" if summary["over"] else "No"}</span>',
+        badges = [
+            f'<span class="badge {session_type}">{session}</span>',
+            f'<span class="badge {"success pulse" if summary["over"] else "info"}">{"🚨 SPIKE" if summary["over"] else "Normal"}</span>',
+            f'<span class="badge primary">×{summary["multiplier"]:.2f}</span>',
         ]
-        st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="margin-bottom: 20px;">{" ".join(badges)}</div>', unsafe_allow_html=True)
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
-        c3.metric("Threshold", f"{summary['threshold']:.0f}")
-        c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
+        # Metrics with modern styling
+        cols = st.columns(4)
+        cols[0].metric("📊 Volume", f"{summary['volume']:,}", 
+                      delta=f"+{summary['volume'] - summary['avg']:.0f}" if summary['over'] else None)
+        cols[1].metric("📈 Average", f"{summary['avg']:.0f}")
+        cols[2].metric("🎯 Threshold", f"{summary['threshold']:.0f}")
+        cols[3].metric("⚡ Status", "Spike!" if summary['over'] else "Normal",
+                      delta_color="normal" if summary['over'] else "off")
     
-    # Define columns based on mode
-    if is_4h_mode:
-        columns = [
-            "Time (IST)",
-            "Time Range (4H)",
-            "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment", "Body %"  # Added Body %
-        ]
-    else:
-        columns = [
-            "Time (IST)",
-            f"Time Bucket ({bucket_lbl})",
-            "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment"
-        ]
+    # Chart
+    if st.session_state.show_charts:
+        chart = create_volume_chart(name, rows, threshold, summary.get("over", False))
+        if chart:
+            st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})
     
-    trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
-    df = pd.DataFrame(trimmed_rows, columns=columns)
-    
-    # Configure column display
-    column_config = {
-        "Open": st.column_config.NumberColumn(format="%.1f"),
-        "High": st.column_config.NumberColumn(format="%.1f"),
-        "Low": st.column_config.NumberColumn(format="%.1f"),
-        "Close": st.column_config.NumberColumn(format="%.1f"),
-        "Volume": st.column_config.NumberColumn(format="%.0f"),
-        "Spike Δ": st.column_config.TextColumn(),
-        "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
-    }
-    
-    if is_4h_mode:
-        column_config["Body %"] = st.column_config.TextColumn(
-            help="Body as % of total range. Higher % = stronger directional move, Lower % = indecision/doji"
+    # Data table with modern styling
+    with st.expander("📋 Detailed Data", expanded=False):
+        # Prepare DataFrame
+        df_data = []
+        for row in rows[-DISPLAY_ROWS:]:
+            df_data.append({
+                "Time": row[0],
+                "Bucket": row[1],
+                "Open": row[2],
+                "High": row[3],
+                "Low": row[4],
+                "Close": row[5],
+                "Volume": row[6],
+                "Spike": "Yes" if row[7] else "No",
+                "Sentiment": row[8]
+            })
+        
+        df = pd.DataFrame(df_data)
+        
+        st.dataframe(df, height=300, use_container_width=True)
+        
+        # Export button
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Export CSV",
+            data=csv,
+            file_name=f"{name}_volume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
         )
-    
-    st.dataframe(
-        df,
-        width="stretch",
-        hide_index=True,
-        height=520,
-        column_config=column_config,
-    )
-    
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Export to CSV",
-        data=csv,
-        file_name=f"{name}_volume_spikes.csv",
-        mime="text/csv"
-    )
 
-# ====== DASHBOARD EXECUTION ======
-def run_volume_check():
+# ====== MAIN DASHBOARD ======
+def run_modern_dashboard():
+    """Main dashboard with modern UI and optimizations"""
     reset_if_new_day()
     alerted_candles = load_alerted_candles()
-    all_spike_msgs = []
+    
+    # Sound alert container
+    if st.session_state.enable_sound_alerts:
+        st.markdown(create_sound_alert(), unsafe_allow_html=True)
+    
+    # Header
+    st.markdown("""
+        <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; margin-bottom: 30px;">
+            <h1 style="color: white; font-size: 2.5rem; margin: 0;">📊 Volume Spike Dashboard Pro</h1>
+            <p style="color: rgba(255,255,255,0.9); margin-top: 10px;">Real-time Volume Anomaly Detection System</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Loading bar animation
+    st.markdown('<div class="loading-bar"></div>', unsafe_allow_html=True)
     
     if not st.session_state.selected_instruments:
-        st.warning("⚠️ No instruments selected. Please choose at least one.")
+        st.warning("⚠️ Please select at least one instrument from the sidebar")
         return
     
+    # Settings summary
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
+        session, session_type = get_market_session(datetime.now(IST))
+        
+        badges = [
+            f'<span class="badge info">🕒 {now_ist} IST</span>',
+            f'<span class="badge {session_type}">{session}</span>',
+            f'<span class="badge primary">Candle: {st.session_state.candle_size}</span>',
+            f'<span class="badge {"success" if st.session_state.enable_sound_alerts else "warning"}">🔊 {"ON" if st.session_state.enable_sound_alerts else "OFF"}</span>',
+            f'<span class="badge {"success" if st.session_state.enable_telegram_alerts else "warning"}">📱 {"ON" if st.session_state.enable_telegram_alerts else "OFF"}</span>',
+        ]
+        st.markdown(f'<div style="margin-bottom: 20px;">{" ".join(badges)}</div>', unsafe_allow_html=True)
+    
+    with col2:
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.rerun()
+    
+    # Determine settings
     if st.session_state.candle_size == "4 hour":
         granularity = "H4"
         bucket_minutes = 240
@@ -594,80 +958,94 @@ def run_volume_check():
         bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
         is_4h_mode = False
     
-    top_l, top_r = st.columns([3, 2])
-    with top_l:
-        st.subheader("📊 Volume Anomaly Detector")
-        now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
-        tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
-        comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
-        weekends_status = "OFF" if st.session_state.skip_weekends else "ON"
-        st.markdown(
-            f'<div class="badges">'
-            f'<span class="badge">IST: {now_ist}</span>'
-            f'<span class="badge neutral">Candle: {"4h" if granularity=="H4" else "15m"}</span>'
-            f'<span class="badge neutral">{comparison_type}</span>'
-            f'<span class="badge neutral">Threshold × {st.session_state.threshold_multiplier:.2f}</span>'
-            f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
-            f'<span class="badge {"ok" if tele_status=="ON" else "warn"}">Telegram: {tele_status}</span>'
-            f'<span class="badge {"ok" if st.session_state.skip_weekends else "warn"}">Weekends: {weekends_status}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with top_r:
-        st.info("Tip: Turn on Telegram alerts in the sidebar to receive spike notifications.")
+    # Batch fetch data for all instruments
+    selected_inst = {name: INSTRUMENTS[name] for name in st.session_state.selected_instruments}
     
-    names = st.session_state.selected_instruments
-    cols = st.columns(2) if len(names) > 1 else [st.container()]
-    col_idx = 0
+    # Progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    all_rows_have_data = False
+    all_spike_alerts = []
+    spike_detected = False
     
-    for name in names:
-        code = INSTRUMENTS[name]
-        with cols[col_idx]:
-            with st.container(border=True):
-                rows, spikes, summary = process_instrument(name, code, bucket_minutes, granularity, alerted_candles)
-                if rows:
-                    all_rows_have_data = True
-                    render_card(name, rows, bucket_minutes, summary, is_4h_mode)
-                else:
-                    st.warning(f"No recent data for {name}")
+    # Process instruments
+    cols = st.columns(2) if len(selected_inst) > 1 else [st.container()]
+    
+    for idx, (name, code) in enumerate(selected_inst.items()):
+        progress = (idx + 1) / len(selected_inst)
+        progress_bar.progress(progress)
+        status_text.text(f"Processing {name}...")
         
-        col_idx = (col_idx + 1) % len(cols)
-        
-        if spikes:
-            all_spike_msgs.extend(spikes)
-    
-    if all_spike_msgs:
-        formatted_msgs = []
-        for raw in all_spike_msgs:
-            try:
-                parts = raw.split(" — Vol ")
-                instrument_time = parts[0].split()
-                instrument = instrument_time[0]
-                time_str = " ".join(instrument_time[1:])
-                vol_part = parts[1]
-                vol_val = vol_part.split(" ")[0]
-                spike_delta = vol_part.split("(")[-1].split(")")[0]
-                sentiment = vol_part.split()[-1]
-                formatted_msgs.append(
-                    f"🔍 Instrument: {instrument}\n"
-                    f"🕒 Time: {time_str}\n"
-                    f"📊 Volume: {vol_val} {spike_delta}\n"
-                    f"📈 Sentiment: {sentiment}"
+        with cols[idx % len(cols)]:
+            with st.container():
+                st.markdown("""
+                    <div style="padding: 20px; 
+                                background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%); 
+                                border-radius: 16px; 
+                                border: 1px solid rgba(148, 163, 184, 0.1);
+                                margin-bottom: 20px;">
+                """, unsafe_allow_html=True)
+                
+                rows, spikes, summary, threshold = process_instrument_optimized(
+                    name, code, bucket_minutes, granularity, alerted_candles
                 )
-            except:
-                formatted_msgs.append(raw)
-        
-        comparison_label = "4H time range" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
-        alert_msg = f"⚡ Volume Spike Alert — {comparison_label}\n\n" + "\n\n".join(formatted_msgs)
-        print(alert_msg)
-        send_telegram_alert(alert_msg)
-    else:
-        if all_rows_have_data:
-            st.info("ℹ️ No spikes in the last two candles.")
+                
+                if rows:
+                    render_modern_card(name, rows, bucket_minutes, summary, threshold, is_4h_mode)
+                    
+                    if spikes:
+                        all_spike_alerts.extend(spikes)
+                        spike_detected = True
+                else:
+                    st.error(f"No data available for {name}")
+                
+                st.markdown("</div>", unsafe_allow_html=True)
     
+    progress_bar.empty()
+    status_text.empty()
+    
+    # Handle spike alerts
+    if spike_detected and all_spike_alerts:
+        # Play sound alert
+        if st.session_state.enable_sound_alerts:
+            st.markdown('<script>playAlert();</script>', unsafe_allow_html=True)
+        
+        # Show notification
+        st.markdown(f"""
+            <div class="notification">
+                🚨 Volume Spike Detected! Check {len(all_spike_alerts)} alert(s)
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Send Telegram alert
+        if st.session_state.enable_telegram_alerts:
+            alert_msg = "⚡ *Volume Spike Alert*\n\n"
+            for spike in all_spike_alerts:
+                alert_msg += f"📊 *{spike['name']}*\n"
+                alert_msg += f"🕒 Time: {spike['time']}\n"
+                alert_msg += f"📈 Volume: {spike['volume']:,} {spike['spike']}\n"
+                alert_msg += f"📊 Sentiment: {spike['sentiment']}\n\n"
+            send_telegram_alert(alert_msg)
+    
+    # Save state
     save_alerted_candles(alerted_candles)
+    
+    # Footer
+    st.markdown("""
+        <div style="text-align: center; 
+                    padding: 20px; 
+                    margin-top: 40px; 
+                    border-top: 1px solid rgba(148, 163, 184, 0.1);">
+            <p style="color: #94a3b8; font-size: 0.9rem;">
+                Volume Spike Dashboard Pro v2.0 | Auto-refresh: {refresh} min | 
+                Last update: {time}
+            </p>
+        </div>
+    """.format(
+        refresh=st.session_state.refresh_minutes,
+        time=datetime.now(IST).strftime("%I:%M:%S %p")
+    ), unsafe_allow_html=True)
 
-# ====== MAIN ======
-run_volume_check()
+# ====== MAIN EXECUTION ======
+if __name__ == "__main__":
+    run_modern_dashboard()
