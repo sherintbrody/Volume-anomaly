@@ -5,77 +5,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import pytz
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import numpy as np
-
-# --- Page Config ---
-st.set_page_config(
-    page_title="Pattern Validator",
-    page_icon="🎯",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- Custom CSS ---
-st.markdown("""
-<style>
-    .stButton > button {
-        width: 100%;
-        background-color: #1f77b4;
-        color: white;
-        border-radius: 5px;
-        border: none;
-        padding: 0.5rem 1rem;
-        font-weight: bold;
-        transition: all 0.3s;
-    }
-    .stButton > button:hover {
-        background-color: #1557a4;
-        transform: translateY(-2px);
-    }
-    .success-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        color: #155724;
-        margin: 1rem 0;
-    }
-    .error-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #f8d7da;
-        border: 1px solid #f5c6cb;
-        color: #721c24;
-        margin: 1rem 0;
-    }
-    .metric-card {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border: 1px solid #dee2e6;
-        text-align: center;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # --- Timezone Setup ---
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-# --- Initialize Session State ---
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'last_fetch' not in st.session_state:
-    st.session_state.last_fetch = None
-if 'atr_values' not in st.session_state:
-    st.session_state.atr_values = None
-
 # --- Twelve Data API ---
 API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
 BASE_URL = "https://api.twelvedata.com/time_series"
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_ohlc(symbol, start, end, interval="4h"):
     """Fetch 4H OHLC data from Twelve Data within UTC range."""
     params = {
@@ -100,25 +38,6 @@ def fetch_ohlc(symbol, start, end, interval="4h"):
     
     return df
 
-# --- ATR Calculation ---
-def calculate_atr(df, period=21):
-    """Calculate Average True Range"""
-    high = df['high']
-    low = df['low']
-    close = df['close']
-    
-    # True Range calculation
-    tr1 = high - low
-    tr2 = abs(high - close.shift())
-    tr3 = abs(low - close.shift())
-    
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    
-    # ATR calculation
-    atr = tr.rolling(window=period).mean()
-    
-    return atr
-
 # --- Candle Structure ---
 @dataclass
 class Candle:
@@ -130,7 +49,7 @@ class Candle:
     low: float
     close: float
 
-# --- Pattern Rules ---
+# --- New Pattern Rules ---
 pattern_rules = {
     "base": {
         1:  {"max_range_atr": 0.8},
@@ -272,48 +191,132 @@ def validate_pattern(candles, atr, pattern):
     
     return all(results), "passed" if all(results) else "failed"
 
-# --- Enhanced Plot function with ATR ---
-def plot_combined_chart(df, selected_candles_df=None, atr_values=None):
-    # Create subplots
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=[0.7, 0.3],
-        subplot_titles=('Price Action', 'ATR (21 Period)')
-    )
-    
-    # Candlestick chart
-    fig.add_trace(
-        go.Candlestick(
-            x=df['datetime_ist'],
-            open=df['open'],
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            name='Price',
-            increasing_line_color='#26a69a',
-            decreasing_line_color='#ef5350'
-        ),
-        row=1, col=1
-    )
-    
-    # Selected candles markers
+# --- Plot function (same as before) ---
+def plot_zone_chart(df, selected_candles_df=None):
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(
+        x=df['datetime_ist'],
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='Price'
+    ))
     if selected_candles_df is not None and not selected_candles_df.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=selected_candles_df['datetime_ist'],
-                y=selected_candles_df['high'] * 1.001,
-                mode='markers',
-                marker=dict(symbol='triangle-down', size=15, color='#ff9800'),
-                name='Selected',
-                showlegend=True
-            ),
-            row=1, col=1
-        )
-    
-    # ATR chart
-    if atr_values is not None and len(atr_values) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=
+        fig.add_trace(go.Scatter(
+            x=selected_candles_df['datetime_ist'],
+            y=selected_candles_df['high'] * 1.001,
+            mode='markers',
+            marker=dict(symbol='triangle-down', size=12, color='orange'),
+            name='Selected Candles'
+        ))
+    fig.update_layout(
+        title="Pattern Validation (IST)",
+        yaxis_title="Price",
+        xaxis_title="Time (IST)",
+        height=600,
+        xaxis_rangeslider_visible=False
+    )
+    return fig
+
+# --- Streamlit UI ---
+st.title("🎯 Pattern Validator (Rally / Drop / Base)")
+
+current_time_ist = datetime.now(IST)
+st.caption(f"Current Time (IST): {current_time_ist.strftime('%Y-%m-%d %H:%M:%S')}")
+
+st.sidebar.header("Configuration")
+symbol = st.sidebar.text_input("Symbol", value="XAU/USD")
+mode = st.sidebar.radio("Selection Mode",
+    ["Automatic (Last N Candles)", "Manual Time Range", "Custom Candle Selection"])
+pattern = st.sidebar.selectbox("Pattern to Validate", ["rally", "drop", "base"])
+current_atr = st.sidebar.number_input("Current ATR", min_value=0.01, value=0.75, step=0.01)
+
+df = None
+selected_candles = []
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    if mode == "Automatic (Last N Candles)":
+        st.subheader("📊 Automatic Mode")
+        n_candles = st.slider("Number of candles", 1, 6, 3)
+        if st.button("Analyze Last Candles"):
+            end_utc = datetime.now(UTC)
+            start_utc = end_utc - timedelta(days=5)
+            with st.spinner("Fetching data..."):
+                df = fetch_ohlc(symbol, start_utc, end_utc)
+            if not df.empty:
+                candles = [
+                    dict(open=row.open, high=row.high, low=row.low, close=row.close)
+                    for _, row in df.tail(n_candles).iterrows()
+                ]
+                ok, message = validate_pattern(candles, current_atr, pattern)
+                st.success(f"✅ {pattern.title()} {message}" if ok else f"❌ {pattern.title()} {message}")
+
+    elif mode == "Manual Time Range":
+        st.subheader("🕐 Manual Time Range")
+        st.info("⏰ Enter time in IST")
+        col_start, col_end = st.columns(2)
+        with col_start:
+            start_date = st.date_input("Start Date", value=datetime.now(IST).date() - timedelta(days=3))
+            start_time = st.time_input("Start Time (IST)", value=datetime.now(IST).time())
+        with col_end:
+            end_date = st.date_input("End Date", value=datetime.now(IST).date())
+            end_time = st.time_input("End Time (IST)", value=datetime.now(IST).time())
+        if st.button("Validate Range"):
+            start_ist = IST.localize(datetime.combine(start_date, start_time))
+            end_ist = IST.localize(datetime.combine(end_date, end_time))
+            start_utc = start_ist.astimezone(UTC)
+            end_utc = end_ist.astimezone(UTC)
+            with st.spinner("Fetching data..."):
+                df = fetch_ohlc(symbol, start_utc, end_utc)
+            if not df.empty:
+                sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist)].copy()
+                if not sel.empty:
+                    candles = [
+                        dict(open=row.open, high=row.high, low=row.low, close=row.close)
+                        for _, row in sel.iterrows()
+                    ]
+                    ok, message = validate_pattern(candles, current_atr, pattern)
+                    st.success(f"✅ {pattern.title()} {message}" if ok else f"❌ {pattern.title()} {message}")
+                    selected_candles = sel
+
+    else:
+        st.subheader("🎯 Custom Candle Selection")
+        if st.button("Load Recent Data"):
+            end_utc = datetime.now(UTC)
+            start_utc = end_utc - timedelta(days=10)
+            with st.spinner("Loading data..."):
+                df = fetch_ohlc(symbol, start_utc, end_utc)
+            if not df.empty:
+                st.session_state['df'] = df
+                st.success(f"Loaded {len(df)} candles")
+        if 'df' in st.session_state:
+            df = st.session_state['df']
+            df_display = df[['datetime_ist','open','high','low','close']].copy()
+            df_display['datetime_ist'] = df_display['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
+            st.write("Select candles (1–6):")
+            indices = st.multiselect("Indices", options=df_display.index.tolist(),
+                format_func=lambda x: f"{x}: {df_display.loc[x,'datetime_ist']} O:{df_display.loc[x,'open']:.2f} C:{df_display.loc[x,'close']:.2f}")
+            if indices and st.button("Validate Selected"):
+                indices = sorted(indices)
+                candles = [
+                    dict(open=df.loc[idx,'open'], high=df.loc[idx,'high'], low=df.loc[idx,'low'], close=df.loc[idx,'close'])
+                    for idx in indices
+                ]
+                ok, message = validate_pattern(candles, current_atr, pattern)
+                st.success(f"✅ {pattern.title()} {message}" if ok else f"❌ {pattern.title()} {message}")
+                selected_candles = df.iloc[indices]
+
+# --- Chart Display ---
+if df is not None and not df.empty:
+    st.subheader("📈 Chart")
+    sel_df = selected_candles if isinstance(selected_candles, pd.DataFrame) else None
+    fig = plot_zone_chart(df, sel_df)
+    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("📊 Recent Data")
+    display_df = df[['datetime_ist','open','high','low','close']].tail(20).copy()
+    display_df['datetime_ist'] = display_df['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
+    display_df.columns = ['Time (IST)','Open','High','Low','Close']
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
