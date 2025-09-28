@@ -1263,9 +1263,17 @@ with tab1:
             duration = end_ist - start_ist
             
             st.markdown(f"""
-            <div style="background: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0;">
-                <strong>Selected Range:</strong> {start_ist.strftime('%Y-%m-%d %H:%M')} to {end_ist.strftime('%Y-%m-%d %H:%M')} IST<br>
-                <strong>Duration:</strong> {duration} ({duration.total_seconds()/3600:.1f} hours)
+            <div style="
+                background: #e7f3ff;
+                color: #0c5460;             /* ← make your text darker */
+                padding: 10px;
+                border-radius: 5px;
+                margin: 10px 0;
+            ">
+                <strong>Selected Range:</strong> {start_ist.strftime('%Y-%m-%d %H:%M')} 
+            to {end_ist.strftime('%Y-%m-%d %H:%M')} IST<br>
+                <strong>Duration:</strong> {duration} 
+            ({duration.total_seconds()/3600:.1f} hours)
             </div>
             """, unsafe_allow_html=True)
             
