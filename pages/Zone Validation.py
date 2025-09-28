@@ -48,6 +48,14 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         margin: 10px 0;
     }
+    .warning-box {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+        margin: 10px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -58,6 +66,13 @@ UTC = pytz.UTC
 # --- Twelve Data API ---
 API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
 BASE_URL = "https://api.twelvedata.com/time_series"
+
+# --- Helper function to check if candle is complete ---
+def is_candle_complete(candle_time, interval_hours=4):
+    """Check if a candle is complete based on current time"""
+    current_time = datetime.now(UTC)
+    candle_end_time = candle_time + timedelta(hours=interval_hours)
+    return current_time >= candle_end_time
 
 # --- Caching for API calls ---
 @st.cache_data(ttl=300)  # Cache for 5 minutes
@@ -83,29 +98,53 @@ def fetch_ohlc(symbol, start, end, interval="4h"):
         df = df.sort_values("datetime").reset_index(drop=True)
         df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
         
-        # Calculate ATR
+        # Check if last candle is complete
+        if len(df) > 0:
+            last_candle_time = df.iloc[-1]['datetime']
+            df['is_complete'] = True
+            if not is_candle_complete(last_candle_time):
+                df.loc[df.index[-1], 'is_complete'] = False
+        
+        # Calculate ATR (excluding incomplete candles)
         df = calculate_atr(df, period=21)
     
     return df
 
 # --- ATR Calculation ---
 def calculate_atr(df, period=21):
-    """Calculate Average True Range"""
-    df['prev_close'] = df['close'].shift(1)
+    """Calculate Average True Range excluding incomplete candles"""
+    df_copy = df.copy()
     
-    # True Range calculation
-    df['tr1'] = df['high'] - df['low']
-    df['tr2'] = abs(df['high'] - df['prev_close'])
-    df['tr3'] = abs(df['low'] - df['prev_close'])
-    df['true_range'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
+    # Mark incomplete candle for reference
+    incomplete_candle_exists = False
+    if len(df_copy) > 0 and 'is_complete' in df_copy.columns:
+        incomplete_candle_exists = not df_copy.iloc[-1]['is_complete']
     
-    # ATR calculation
-    df['atr'] = df['true_range'].rolling(window=period).mean()
+    # Calculate True Range for all candles
+    df_copy['prev_close'] = df_copy['close'].shift(1)
+    df_copy['tr1'] = df_copy['high'] - df_copy['low']
+    df_copy['tr2'] = abs(df_copy['high'] - df_copy['prev_close'])
+    df_copy['tr3'] = abs(df_copy['low'] - df_copy['prev_close'])
+    df_copy['true_range'] = df_copy[['tr1', 'tr2', 'tr3']].max(axis=1)
+    
+    # Calculate ATR excluding the last candle if it's incomplete
+    if incomplete_candle_exists:
+        # Calculate ATR up to the second-to-last candle
+        df_copy['atr'] = df_copy['true_range'].iloc[:-1].rolling(window=period).mean()
+        # Forward fill the last ATR value to the incomplete candle
+        df_copy.loc[df_copy.index[-1], 'atr'] = df_copy['atr'].iloc[-2] if len(df_copy) > 1 else np.nan
+        # Add a flag to indicate this ATR is carried forward
+        df_copy['atr_projected'] = False
+        df_copy.loc[df_copy.index[-1], 'atr_projected'] = True
+    else:
+        # Normal ATR calculation if all candles are complete
+        df_copy['atr'] = df_copy['true_range'].rolling(window=period).mean()
+        df_copy['atr_projected'] = False
     
     # Clean up temporary columns
-    df.drop(['prev_close', 'tr1', 'tr2', 'tr3'], axis=1, inplace=True)
+    df_copy.drop(['prev_close', 'tr1', 'tr2', 'tr3'], axis=1, inplace=True)
     
-    return df
+    return df_copy
 
 # --- Candle Structure ---
 @dataclass
@@ -264,9 +303,9 @@ def validate_pattern_detailed(candles, atr, pattern):
     overall = all(results.values())
     return overall, "passed" if overall else "failed", results
 
-# --- Enhanced Plot function ---
+# --- Enhanced Plot function with improved hover ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create combined chart with price and ATR"""
+    """Create combined chart with price and ATR with enhanced hover data"""
     rows = 2 if show_atr else 1
     row_heights = [0.7, 0.3] if show_atr else [1.0]
     
@@ -290,6 +329,21 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         decreasing_line_color='#ef5350'
     ), row=1, col=1)
     
+    # Mark incomplete candles
+    if 'is_complete' in df.columns:
+        incomplete_df = df[~df['is_complete']]
+        if not incomplete_df.empty:
+            fig.add_trace(go.Scatter(
+                x=incomplete_df['datetime_ist'],
+                y=incomplete_df['high'] * 1.005,
+                mode='markers+text',
+                marker=dict(symbol='x', size=12, color='red'),
+                text='Forming',
+                textposition="top center",
+                name='Incomplete Candle',
+                showlegend=True
+            ), row=1, col=1)
+    
     # Selected candles markers
     if selected_candles_df is not None and not selected_candles_df.empty:
         fig.add_trace(go.Scatter(
@@ -301,22 +355,66 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             showlegend=True
         ), row=1, col=1)
     
-    # ATR chart
+    # ATR chart with enhanced hover
     if show_atr and 'atr' in df.columns:
+        # Prepare hover text
+        hover_text = []
+        for idx, row in df.iterrows():
+            time_str = row['datetime_ist'].strftime('%Y-%m-%d %H:%M')
+            atr_val = row['atr']
+            if pd.notna(atr_val):
+                text = f"Time: {time_str}<br>ATR: {atr_val:.4f}"
+                if 'atr_projected' in df.columns and row['atr_projected']:
+                    text += "<br><b>(Projected from complete candles)</b>"
+                hover_text.append(text)
+            else:
+                hover_text.append(f"Time: {time_str}<br>ATR: N/A")
+        
+        # Main ATR line
         fig.add_trace(go.Scatter(
             x=df['datetime_ist'],
             y=df['atr'],
-            mode='lines',
+            mode='lines+markers',
             name='ATR',
             line=dict(color='#2196f3', width=2),
+            marker=dict(size=4),
+            hovertext=hover_text,
+            hoverinfo='text',
             showlegend=False
         ), row=2, col=1)
         
+        # Mark projected ATR points
+        if 'atr_projected' in df.columns:
+            projected_df = df[df['atr_projected']]
+            if not projected_df.empty:
+                fig.add_trace(go.Scatter(
+                    x=projected_df['datetime_ist'],
+                    y=projected_df['atr'],
+                    mode='markers',
+                    marker=dict(symbol='circle-open', size=10, color='orange'),
+                    name='Projected ATR',
+                    hovertext=[f"ATR: {val:.4f} (Projected)" for val in projected_df['atr']],
+                    hoverinfo='text',
+                    showlegend=True
+                ), row=2, col=1)
+        
         # Add current ATR line
         if not df['atr'].isna().all():
-            current_atr = df['atr'].iloc[-1]
-            fig.add_hline(y=current_atr, line_dash="dash", line_color="#ff5722", 
-                         annotation_text=f"Current: {current_atr:.2f}", row=2, col=1)
+            # Get the last valid ATR (excluding projected if incomplete)
+            if 'is_complete' in df.columns and not df.iloc[-1]['is_complete']:
+                # Use second-to-last ATR if last candle is incomplete
+                current_atr = df['atr'].iloc[-2] if len(df) > 1 else df['atr'].iloc[-1]
+            else:
+                current_atr = df['atr'].iloc[-1]
+            
+            fig.add_hline(
+                y=current_atr, 
+                line_dash="dash", 
+                line_color="#ff5722",
+                annotation_text=f"Current ATR: {current_atr:.4f}",
+                annotation_position="right",
+                row=2, col=1
+            )
     
     # Update layout
     fig.update_layout(
@@ -330,7 +428,8 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             y=0.99,
             xanchor="left",
             x=0.01
-        )
+        ),
+        hovermode='x unified'
     )
     
     fig.update_xaxes(title_text="Time (IST)", row=rows, col=1)
@@ -368,9 +467,16 @@ def display_validation_results(is_valid, message, pattern, details=None):
                 col.markdown(f"{icon} **{check_name}**: {'Passed' if result else 'Failed'}")
 
 # --- Metrics Display ---
-def display_pattern_metrics(df, selected_candles, atr):
+def display_pattern_metrics(df, selected_candles, atr, incomplete_warning=False):
     """Display key metrics for pattern analysis"""
     st.markdown("### 📊 Pattern Metrics")
+    
+    if incomplete_warning:
+        st.markdown("""
+        <div class="warning-box">
+            ⚠️ <b>Note:</b> The current candle is still forming. ATR calculation excludes incomplete candles.
+        </div>
+        """, unsafe_allow_html=True)
     
     if selected_candles:
         cols = st.columns(4)
@@ -384,7 +490,7 @@ def display_pattern_metrics(df, selected_candles, atr):
         cols[0].metric("Candles", n_candles)
         cols[1].metric("Avg Range (ATR)", f"{avg_range:.2f}")
         cols[2].metric("Net Move (ATR)", f"{net_move:.2f}")
-        cols[3].metric("Current ATR", f"{atr:.2f}")
+        cols[3].metric("Current ATR", f"{atr:.4f}")
 
 # --- Streamlit UI ---
 st.title("🎯 Advanced Pattern Validator Pro")
@@ -417,6 +523,15 @@ with st.sidebar:
     use_auto_atr = st.checkbox("Auto-detect ATR", value=True)
     if not use_auto_atr:
         current_atr = st.number_input("Manual ATR Value", min_value=0.01, value=0.75, step=0.01)
+    
+    st.markdown("""
+    <div class="metric-card">
+        <small><b>ATR Calculation Note:</b></small><br>
+        <small>• Uses 21-period average<br>
+        • Excludes forming candles<br>
+        • Based on True Range formula</small>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Display current time
     current_time_ist = datetime.now(IST)
@@ -453,23 +568,37 @@ with tab1:
             if not df.empty:
                 st.session_state['df'] = df
                 
+                # Check for incomplete candle
+                has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
+                
                 # Get ATR
                 if use_auto_atr:
-                    current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
-                    st.info(f"📊 Auto-detected ATR: {current_atr:.2f}")
+                    if has_incomplete and len(df) > 1:
+                        # Use ATR from last complete candle
+                        current_atr = df['atr'].iloc[-2]
+                        st.info(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
+                    else:
+                        current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                        st.info(f"📊 Auto-detected ATR: {current_atr:.4f}")
                 
-                # Select candles
+                # Select candles (only complete ones for validation)
+                if has_incomplete:
+                    # Exclude the incomplete candle from analysis
+                    analysis_df = df[df['is_complete']].tail(n_candles)
+                else:
+                    analysis_df = df.tail(n_candles)
+                
                 candles = [
                     dict(open=row.open, high=row.high, low=row.low, close=row.close)
-                    for _, row in df.tail(n_candles).iterrows()
+                    for _, row in analysis_df.iterrows()
                 ]
                 selected_candles = candles
-                st.session_state['selected_candles'] = df.tail(n_candles)
+                st.session_state['selected_candles'] = analysis_df
                 
                 # Validate
                 ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
                 display_validation_results(ok, message, pattern, details)
-                display_pattern_metrics(df, candles, current_atr)
+                display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
 
     elif mode == "Manual Time Range":
         st.markdown("### 🕐 Manual Time Range Selection")
@@ -495,13 +624,20 @@ with tab1:
             if not df.empty:
                 st.session_state['df'] = df
                 
+                # Check for incomplete candle
+                has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
+                
                 # Get ATR
                 if use_auto_atr:
-                    current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
-                    st.info(f"📊 Auto-detected ATR: {current_atr:.2f}")
+                    if has_incomplete and len(df) > 1:
+                        current_atr = df['atr'].iloc[-2]
+                        st.info(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
+                    else:
+                        current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                        st.info(f"📊 Auto-detected ATR: {current_atr:.4f}")
                 
-                # Select candles in range
-                sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist)].copy()
+                # Select candles in range (only complete ones)
+                sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
                 
                 if not sel.empty:
                     candles = [
@@ -514,9 +650,9 @@ with tab1:
                     # Validate
                     ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
                     display_validation_results(ok, message, pattern, details)
-                    display_pattern_metrics(df, candles, current_atr)
+                    display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
                 else:
-                    st.warning("No candles found in selected range")
+                    st.warning("No complete candles found in selected range")
 
     else:  # Custom selection
         st.markdown("### 🎯 Custom Candle Selection")
@@ -530,21 +666,30 @@ with tab1:
             
             if not df.empty:
                 st.session_state['df'] = df
-                st.success(f"✅ Loaded {len(df)} candles")
+                complete_count = df['is_complete'].sum() if 'is_complete' in df.columns else len(df)
+                st.success(f"✅ Loaded {len(df)} candles ({complete_count} complete)")
         
         if 'df' in st.session_state:
             df = st.session_state['df']
             
+            # Check for incomplete candle
+            has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
+            
             # Get ATR
             if use_auto_atr:
-                current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
-                st.info(f"📊 Auto-detected ATR: {current_atr:.2f}")
+                if has_incomplete and len(df) > 1:
+                    current_atr = df['atr'].iloc[-2]
+                    st.info(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
+                else:
+                    current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                    st.info(f"📊 Auto-detected ATR: {current_atr:.4f}")
             
-            # Create selection dataframe
-            df_display = df[['datetime_ist','open','high','low','close']].copy()
+            # Create selection dataframe (only complete candles)
+            df_complete = df[df['is_complete']] if 'is_complete' in df.columns else df
+            df_display = df_complete[['datetime_ist','open','high','low','close']].copy()
             df_display['datetime_ist'] = df_display['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
             
-            st.markdown("#### Select candles (1-6 candles)")
+            st.markdown("#### Select candles (1-6 complete candles only)")
             indices = st.multiselect(
                 "Choose candles by index",
                 options=df_display.index.tolist(),
@@ -564,7 +709,7 @@ with tab1:
                 # Validate
                 ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
                 display_validation_results(ok, message, pattern, details)
-                display_pattern_metrics(df, candles, current_atr)
+                display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
 
 with tab2:
     st.markdown("### 📈 Interactive Chart")
@@ -580,6 +725,18 @@ with tab2:
         
         fig = plot_combined_chart(df, sel_df, show_atr=show_atr)
         st.plotly_chart(fig, use_container_width=True)
+        
+        # ATR info box
+        if show_atr and 'atr' in df.columns:
+            st.markdown("""
+            <div class="metric-card">
+                <b>📊 ATR Chart Guide:</b><br>
+                • Hover over the line to see exact ATR values<br>
+                • Orange circles indicate projected ATR (from incomplete candles)<br>
+                • Red dashed line shows current ATR level<br>
+                • X marks indicate forming/incomplete candles
+            </div>
+            """, unsafe_allow_html=True)
     else:
         st.info("📊 Load data to view chart")
 
@@ -590,11 +747,13 @@ with tab3:
         df = st.session_state['df']
         
         # Display options
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             show_last_n = st.number_input("Show last N candles", min_value=5, max_value=50, value=20)
         with col2:
             show_atr_col = st.checkbox("Show ATR column", value=True)
+        with col3:
+            show_complete_col = st.checkbox("Show Complete Status", value=True)
         
         # Prepare display dataframe
         display_df = df.tail(show_last_n).copy()
@@ -603,11 +762,19 @@ with tab3:
         cols_to_show = ['datetime_ist','open','high','low','close']
         if show_atr_col and 'atr' in display_df.columns:
             cols_to_show.append('atr')
-            display_df['atr'] = display_df['atr'].round(2)
+            display_df['atr'] = display_df['atr'].round(4)
+        if show_complete_col and 'is_complete' in display_df.columns:
+            cols_to_show.append('is_complete')
+            display_df['is_complete'] = display_df['is_complete'].map({True: '✅ Complete', False: '🔄 Forming'})
         
         display_df = display_df[cols_to_show]
-        display_df.columns = ['Time (IST)','Open','High','Low','Close'] + (['ATR'] if 'atr' in cols_to_show else [])
-        display_df = display_df.round(2)
+        col_names = ['Time (IST)','Open','High','Low','Close']
+        if 'atr' in cols_to_show:
+            col_names.append('ATR')
+        if 'is_complete' in cols_to_show:
+            col_names.append('Status')
+        display_df.columns = col_names
+        display_df[['Open','High','Low','Close']] = display_df[['Open','High','Low','Close']].round(2)
         
         st.dataframe(
             display_df,
@@ -632,7 +799,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: #666;'>
-        <small>Pattern Validator Pro v2.0 | Real-time market analysis with ATR</small>
+        <small>Pattern Validator Pro v2.1 | ATR excludes incomplete candles | Enhanced hover tooltips</small>
     </div>
     """,
     unsafe_allow_html=True
