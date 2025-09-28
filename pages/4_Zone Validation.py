@@ -1,4 +1,5 @@
 import streamlit as st
+import requests
 import pandas as pd
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -6,8 +7,6 @@ import pytz
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
-import requests
-import json
 
 # --- Page Config ---
 st.set_page_config(
@@ -106,10 +105,9 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-# --- Oanda API ---
-API_KEY = st.secrets["OANDA_ALT"]["API_KEY"]
-ACCOUNT_ID = st.secrets["OANDA_ALT"]["ACCOUNT_ID"]
-OANDA_BASE_URL = "https://api-fxpractice.oanda.com"  # Use api-fxtrade.oanda.com for live accounts
+# --- Twelve Data API ---
+API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
+BASE_URL = "https://api.twelvedata.com/time_series"
 
 # --- Helper function to check if candle is complete ---
 def is_candle_complete(candle_time, interval_hours=4):
@@ -118,121 +116,36 @@ def is_candle_complete(candle_time, interval_hours=4):
     candle_end_time = candle_time + timedelta(hours=interval_hours)
     return current_time >= candle_end_time
 
-# --- Oanda API Helper Functions ---
-def get_oanda_headers():
-    """Get headers for Oanda API requests"""
-    return {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-def convert_oanda_instrument(symbol):
-    """Convert common symbol format to Oanda instrument format"""
-    # Map common symbols to Oanda format
-    symbol_map = {
-        "XAU/USD": "XAU_USD",
-        "NAS100": "NAS100_USD",
-        "US30": "US30_USD",
-        "EUR/USD": "EUR_USD",
-        "GBP/USD": "GBP_USD",
-        "USD/JPY": "USD_JPY",
-        "BTC/USD": "BTC_USD",
-        "ETH/USD": "ETH_USD"
-    }
-    
-    # Return mapped symbol or convert format by replacing / with _
-    return symbol_map.get(symbol, symbol.replace("/", "_"))
-
 # --- Caching for API calls ---
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def fetch_ohlc(symbol, start, end, interval="H4"):
-    """Fetch OHLC data from Oanda API within UTC range."""
-    
-    # Convert symbol to Oanda format
-    instrument = convert_oanda_instrument(symbol)
-    
-    # Convert interval to Oanda format
-    interval_map = {
-        "4h": "H4",
-        "1h": "H1",
-        "1d": "D",
-        "1w": "W"
-    }
-    oanda_interval = interval_map.get(interval, "H4")
-    
-    # Calculate count based on time range (with buffer)
-    time_diff = end - start
-    hours_diff = time_diff.total_seconds() / 3600
-    
-    if oanda_interval == "H4":
-        count = int(hours_diff / 4) + 10  # Add buffer
-    elif oanda_interval == "H1":
-        count = int(hours_diff) + 10
-    elif oanda_interval == "D":
-        count = int(hours_diff / 24) + 10
-    elif oanda_interval == "W":
-        count = int(hours_diff / (24 * 7)) + 10
-    else:
-        count = 500  # Default max
-    
-    # Ensure count is within limits
-    count = min(count, 5000)
-    
-    # Format end time for Oanda
-    end_str = end.strftime("%Y-%m-%dT%H:%M:%SZ")
-    
-    # Build URL
-    url = f"{OANDA_BASE_URL}/v3/instruments/{instrument}/candles"
-    
-    # Parameters
+def fetch_ohlc(symbol, start, end, interval="4h"):
+    """Fetch 4H OHLC data from Twelve Data within UTC range."""
     params = {
-        "price": "M",  # Midpoint candles
-        "granularity": oanda_interval,
-        "count": count,
-        "to": end_str,
-        "alignmentTimezone": "UTC"
+        "symbol": symbol,
+        "interval": interval,
+        "start_date": start.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_date": end.strftime("%Y-%m-%d %H:%M:%S"),
+        "apikey": API_KEY,
+        "timezone": "UTC",
+        "format": "JSON"
     }
-    
-    # Make request
-    response = requests.get(url, headers=get_oanda_headers(), params=params)
-    
-    if response.status_code != 200:
-        st.error(f"API Error: {response.status_code} - {response.text}")
-        return pd.DataFrame()
-    
-    # Parse response
-    data = response.json()
-    
-    if "candles" not in data:
-        return pd.DataFrame()
-    
-    # Extract candle data
-    candles = data["candles"]
-    
-    # Create DataFrame
-    records = []
-    for candle in candles:
-        time_str = candle["time"]
-        time = datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-        
-        # Only include candles within our date range
-        if time >= start and time <= end:
-            record = {
-                "datetime": time,
-                "open": float(candle["mid"]["o"]),
-                "high": float(candle["mid"]["h"]),
-                "low": float(candle["mid"]["l"]),
-                "close": float(candle["mid"]["c"]),
-                "is_complete": candle["complete"]
-            }
-            records.append(record)
-    
-    df = pd.DataFrame(records)
+    response = requests.get(BASE_URL, params=params).json()
+    values = response.get("values", [])
+    df = pd.DataFrame(values)
     
     if not df.empty:
         # Convert to IST
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
         df = df.sort_values("datetime").reset_index(drop=True)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+        
+        # Check if last candle is complete
+        if len(df) > 0:
+            last_candle_time = df.iloc[-1]['datetime']
+            df['is_complete'] = True
+            if not is_candle_complete(last_candle_time):
+                df.loc[df.index[-1], 'is_complete'] = False
         
         # Calculate ATR (excluding incomplete candles)
         df = calculate_atr(df, period=21)
@@ -290,100 +203,100 @@ class Candle:
 pattern_rules = {
     "base": {
         1: {
-            "max_range_atr": 1.2
+            "max_range_atr": 1.0
         },
         2: {
-            "max_range_atr": 1.3,
-            "max_close_diff_atr": 0.5,   # was 0.25
-            "no_new_extreme_atr": 0.4    # was 0.2
+            "max_range_atr": 1.1,
+            "max_close_diff_atr": 0.25,
+            "no_new_extreme_atr": 0.2
         },
         3: {
-            "max_range_atr": 1.4,
-            "max_extremes_atr": 0.6,     # was 0.4
-            "max_close_span_atr": 0.5    # was 0.3
+            "max_range_atr": 1.2,
+            "max_extremes_atr": 0.4,
+            "max_close_span_atr": 0.3
         },
         4: {
-            "max_range_atr": 1.5,
-            "max_extremes_atr": 0.8,     # was 0.5
-            "max_net_move_atr": 0.4      # was 0.2
+            "max_range_atr": 1.3,
+            "max_extremes_atr": 0.5,
+            "max_net_move_atr": 0.2
         },
         5: {
-            "max_range_atr": 1.6,
-            "max_extremes_atr": 1.0,     # was 0.6
-            "max_net_move_atr": 0.5      # was 0.3
+            "max_range_atr": 1.4,
+            "max_extremes_atr": 0.6,
+            "max_net_move_atr": 0.3
         },
         6: {
-            "max_range_atr": 1.7,
-            "max_extremes_atr": 1.2,     # was 0.7
-            "max_net_move_atr": 0.5      # was 0.3
+            "max_range_atr": 1.5,
+            "max_extremes_atr": 0.7,
+            "max_net_move_atr": 0.3
         }
     },
     "rally": {
         1: {
-            "min_range_atr": 0.8,        # was 1.0
-            "close_upper_pct": 0.50      # was 0.30
+            "min_range_atr": 1.0,
+            "close_upper_pct": 0.30  # Close in upper 30%
         },
         2: {
-            "min_range_atr": 0.8,
-            "higher_high_low": "majority",  # relaxed from strict True
-            "min_net_move_atr": 0.6      # was 0.8
+            "min_range_atr": 1.0,
+            "higher_high_low": True,
+            "min_net_move_atr": 0.8
         },
         3: {
-            "min_bars_range_atr": {"count": 2, "min": 0.8},
-            "hh_hl_sequence": "majority",
-            "min_net_move_atr": 1.0      # was 1.2
+            "min_bars_range_atr": {"count": 2, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 1.2
         },
         4: {
-            "min_bars_range_atr": {"count": 3, "min": 0.8},
-            "hh_hl_sequence": "majority",
-            "min_net_move_atr": 1.2,     # was 1.5
+            "min_bars_range_atr": {"count": 3, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 1.5,
             "no_bearish_engulfing": True
         },
         5: {
-            "min_bars_range_atr": {"count": 3, "min": 0.8},  # was 4 of 5
-            "hh_hl_sequence": "majority",
-            "min_net_move_atr": 1.5,     # was 2.0
-            "final_close_upper_pct": 0.50  # was 0.40
+            "min_bars_range_atr": {"count": 4, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 2.0,
+            "final_close_upper_pct": 0.40
         },
         6: {
-            "min_bars_range_atr": {"count": 4, "min": 0.8},  # was 5 of 6
-            "hh_hl_sequence": "majority",
-            "min_net_move_atr": 2.0,     # was 2.5
-            "monotonic_closes": False    # relaxed monotonic requirement
+            "min_bars_range_atr": {"count": 5, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 2.5,
+            "monotonic_closes": True
         }
     },
     "drop": {
         1: {
-            "min_range_atr": 0.8,
-            "close_lower_pct": 0.50      # was 0.30
+            "min_range_atr": 1.0,
+            "close_lower_pct": 0.30  # Close in lower 30%
         },
         2: {
-            "min_range_atr": 0.8,
-            "lower_high_low": "majority",
-            "min_net_move_atr": 0.6
+            "min_range_atr": 1.0,
+            "lower_high_low": True,
+            "min_net_move_atr": 0.8
         },
         3: {
-            "min_bars_range_atr": {"count": 2, "min": 0.8},
-            "lh_ll_sequence": "majority",
-            "min_net_move_atr": 1.0
+            "min_bars_range_atr": {"count": 2, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 1.2
         },
         4: {
-            "min_bars_range_atr": {"count": 3, "min": 0.8},
-            "lh_ll_sequence": "majority",
-            "min_net_move_atr": 1.2,
+            "min_bars_range_atr": {"count": 3, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 1.5,
             "no_bullish_engulfing": True
         },
         5: {
-            "min_bars_range_atr": {"count": 3, "min": 0.8},
-            "lh_ll_sequence": "majority",
-            "min_net_move_atr": 1.5,
-            "final_close_lower_pct": 0.50
+            "min_bars_range_atr": {"count": 4, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 2.0,
+            "final_close_lower_pct": 0.40
         },
         6: {
-            "min_bars_range_atr": {"count": 4, "min": 0.8},
-            "lh_ll_sequence": "majority",
-            "min_net_move_atr": 2.0,
-            "monotonic_closes": False
+            "min_bars_range_atr": {"count": 5, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 2.5,
+            "monotonic_closes": True
         }
     }
 }
@@ -581,48 +494,24 @@ def validate_pattern_detailed(candles, atr, pattern):
 
 # --- UPDATED Plot function with removed title and no boundary dots ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create enhanced combined chart with proper candlestick proportions"""
+    """Create enhanced combined chart with optimized spacing and clean pattern visualization"""
     
     # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
     
-    # Calculate optimal dimensions based on data
-    num_candles = len(df)
-    
-    # Dynamic sizing based on number of candles
-    if num_candles <= 20:
-        candle_width = 0.6
-        chart_height = 700
-    elif num_candles <= 40:
-        candle_width = 0.5
-        chart_height = 750
-    else:
-        candle_width = 0.4
-        chart_height = 800
-    
-    # Calculate price range for proper Y-axis scaling
-    price_range = df['high'].max() - df['low'].min()
-    price_padding = price_range * 0.1
-    
-    # For ATR chart, use only data where ATR exists
+    # For ATR chart, use only data where ATR exists (remove blank space)
     if len(df_with_atr) > 42:
         atr_data = df_with_atr.tail(42)
     else:
         atr_data = df_with_atr
     
-    # Remove any NaN values from ATR data
+    # Remove any NaN values from ATR data to eliminate blank space
     atr_data = atr_data.dropna(subset=['atr']) if 'atr' in atr_data.columns else atr_data
     
-    # Adjust row heights for better proportions
     rows = 2 if show_atr else 1
-    if show_atr:
-        row_heights = [0.70, 0.30]
-        chart_height = 900
-    else:
-        row_heights = [1.0]
-        chart_height = 650
+    row_heights = [0.65, 0.35] if show_atr else [1.0]
     
-    # Create subplots
+    # REMOVED: Trading Pattern Analysis Dashboard title
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,
@@ -676,7 +565,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 hovertemplate='<b>Status</b>: Candle Still Forming<br><extra></extra>'
             ), row=1, col=1)
     
-    # Pattern boundary visualization
+    # UPDATED: Pattern boundary visualization - Keep yellow gradient, remove dots
     if selected_candles_df is not None and not selected_candles_df.empty:
         # Get the boundary coordinates
         min_time = selected_candles_df['datetime_ist'].min()
@@ -684,13 +573,13 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         min_price = selected_candles_df['low'].min()
         max_price = selected_candles_df['high'].max()
         
-        # Add pattern boundary rectangle
+        # Add pattern boundary rectangle (keep the yellow gradient)
         fig.add_shape(
             type="rect",
             x0=min_time,
-            y0=min_price * 0.9985,
+            y0=min_price * 0.9985,  # Slightly below the lowest point
             x1=max_time,
-            y1=max_price * 1.0015,
+            y1=max_price * 1.0015,  # Slightly above the highest point
             line=dict(
                 color="#FFD700",
                 width=3,
@@ -700,7 +589,9 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             row=1, col=1
         )
         
-        # Add pattern information annotation
+        # REMOVED: Triangle markers (yellow dots) - No longer adding these
+        
+        # Add pattern information annotation (keep this)
         pattern_info = f"Pattern: {len(selected_candles_df)} candles"
         fig.add_annotation(
             x=min_time,
@@ -719,7 +610,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             row=1, col=1
         )
     
-    # Enhanced ATR Chart
+    # FIXED: Enhanced ATR Chart with proper spacing (no blank areas)
     if show_atr and 'atr' in atr_data.columns and not atr_data['atr'].isna().all():
         # Create gradient background for ATR
         fig.add_trace(go.Scatter(
@@ -834,7 +725,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             hovertemplate=f'<b>ATR Average</b>: {atr_mean:.4f}<br><extra></extra>'
         ), row=2, col=1)
         
-        # Set ATR y-axis range to eliminate blank space
+        # FIXED: Set ATR y-axis range to eliminate blank space
         atr_min = atr_data['atr'].min() * 0.95
         atr_max = atr_data['atr'].max() * 1.05
         
@@ -844,7 +735,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             fixedrange=False
         )
         
-        # Set ATR x-axis range to start from where data begins
+        # FIXED: Set ATR x-axis range to start from where data begins
         fig.update_xaxes(
             range=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
             row=2, col=1
@@ -852,7 +743,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     
     # Enhanced Layout with modern dashboard styling
     fig.update_layout(
-        height=chart_height,
+        height=850,
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
@@ -892,14 +783,10 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         tickfont=dict(size=11, color='white')
     )
     
-    # Price axis styling with proper range
-    y_min = df['low'].min() - price_padding
-    y_max = df['high'].max() + price_padding
-    
+    # Price axis styling
     fig.update_yaxes(
         title_text="<b>Price Level</b>",
         row=1, col=1,
-        range=[y_min, y_max],
         showgrid=True,
         gridwidth=1,
         gridcolor='rgba(255, 255, 255, 0.1)',
@@ -930,6 +817,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     fig.update_layout(xaxis_rangeslider_visible=False)
     
     return fig
+
 # --- Enhanced Result Display Component ---
 def display_validation_results(is_valid, message, pattern, details=None):
     """Display enhanced validation results with modern styling"""
