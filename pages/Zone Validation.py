@@ -495,23 +495,23 @@ def validate_pattern_detailed(candles, atr, pattern):
 # --- UPDATED Plot function with removed title and no boundary dots ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     """Create enhanced combined chart with optimized spacing and clean pattern visualization"""
-    
+
     # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
-    
+
     # For ATR chart, use only data where ATR exists (remove blank space)
     if len(df_with_atr) > 42:
         atr_data = df_with_atr.tail(42)
     else:
         atr_data = df_with_atr
-    
+
     # Remove any NaN values from ATR data to eliminate blank space
     atr_data = atr_data.dropna(subset=['atr']) if 'atr' in atr_data.columns else atr_data
-    
+
     rows = 2 if show_atr else 1
     row_heights = [0.65, 0.35] if show_atr else [1.0]
-    
-    # REMOVED: Trading Pattern Analysis Dashboard title
+
+    # --- Subplot setup ---
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,
@@ -522,19 +522,25 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             '<b style="color:#E74C3C; font-size:16px;">📈 ATR Volatility Indicator (21-Period)</b>'
         ) if show_atr else (None,)
     )
-    
-    # Enhanced Price Chart with better colors
+
+    # --- Enforce between 21 and 25 complete candles for price chart ---
+    if 'is_complete' in df.columns:
+        df_complete = df[df['is_complete']].copy()
+    else:
+        df_complete = df.copy()
+
+    if len(df_complete) < 21:
+        price_data = df_complete  # fallback if dataset itself has <21
+    elif len(df_complete) <= 25:
+        price_data = df_complete  # show all if between 21 and 25
+    else:
+        price_data = df_complete.tail(25)  # cap at 25
+
+    # --- Price chart colors ---
     bullish_color = '#00D4AA'
     bearish_color = '#FF6B6B'
-    # --- Enforce between 21 and 25 candles on price chart ---
-    if len(df) < 21:
-        price_data = df  # fallback if dataset itself has <21
-    elif len(df) <= 25:
-        price_data = df  # show all if between 21 and 25
-    else:
-        price_data = df.tail(25)  # cap at 25
 
-    # Main candlestick chart (price level)
+    # --- Main candlestick chart ---
     fig.add_trace(go.Candlestick(
         x=price_data['datetime_ist'],
         open=price_data['open'],
@@ -550,9 +556,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         hoverinfo='all'
     ), row=1, col=1)
 
-    
-    
-    # Enhanced incomplete candles markers
+    # --- Incomplete candles markers ---
     if 'is_complete' in df.columns:
         incomplete_df = df[~df['is_complete']]
         if not incomplete_df.empty:
@@ -573,7 +577,24 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 showlegend=True,
                 hovertemplate='<b>Status</b>: Candle Still Forming<br><extra></extra>'
             ), row=1, col=1)
-    
+
+    # --- Pattern boundary visualization ---
+    if selected_candles_df is not None and not selected_candles_df.empty:
+        min_time = selected_candles_df['datetime_ist'].min()
+        max_time = selected_candles_df['datetime_ist'].max()
+        min_price = selected_candles_df['low'].min()
+        max_price = selected_candles_df['high'].max()
+
+        fig.add_shape(
+            type="rect",
+            x0=min_time,
+            y0=min_price * 0.9985,
+            x1=max_time,
+            y1=max_price * 1.0015,
+            line=dict(color="#FFD700", width=3, dash="dot"),
+            fillcolor="rgba(255, 215, 0, 0.1)",
+            row=1, col=1
+        )    
     # UPDATED: Pattern boundary visualization - Keep yellow gradient, remove dots
     if selected_candles_df is not None and not selected_candles_df.empty:
         # Get the boundary coordinates
