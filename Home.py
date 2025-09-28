@@ -525,6 +525,8 @@ with st.sidebar.expander("📈 **Display Options**", expanded=False):
         value=st.session_state.skip_weekends,
         key="skip_weekends"
     )
+if st.sidebar.button("🚀 Send Test Alert"):
+    send_telegram_alert("✅ Test message from Streamlit dashboard")
 
 # ====== AUTO-REFRESH ======
 refresh_ms = st.session_state.refresh_minutes * 60 * 1000
