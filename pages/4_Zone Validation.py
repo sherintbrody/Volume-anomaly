@@ -105,14 +105,37 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-
-# --- OANDA API ---
+# --- OANDA API Configuration ---
 API_KEY = st.secrets["API_KEY"]
 ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 
 # Practice environment base URL
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
+# OANDA instrument mapping
+SYMBOL_MAPPING = {
+    "EUR/USD": "EUR_USD",
+    "GBP/USD": "GBP_USD", 
+    "USD/JPY": "USD_JPY",
+    "USD/CHF": "USD_CHF",
+    "AUD/USD": "AUD_USD",
+    "USD/CAD": "USD_CAD",
+    "NZD/USD": "NZD_USD",
+    "EUR/GBP": "EUR_GBP",
+    "EUR/JPY": "EUR_JPY",
+    "GBP/JPY": "GBP_JPY",
+    "XAU/USD": "XAU_USD",
+    "XAG/USD": "XAG_USD",
+    "US30": "US30_USD",
+    "NAS100": "NAS100_USD",
+    "SPX500": "SPX500_USD",
+    "UK100": "UK100_GBP",
+    "DE30": "DE30_EUR",
+    "FR40": "FR40_EUR",
+    "AU200": "AU200_AUD",
+    "BCO/USD": "BCO_USD",
+    "WTI/USD": "WTICO_USD"
+}
 
 # --- Helper function to check if candle is complete ---
 def is_candle_complete(candle_time, interval_hours=4):
@@ -121,41 +144,99 @@ def is_candle_complete(candle_time, interval_hours=4):
     candle_end_time = candle_time + timedelta(hours=interval_hours)
     return current_time >= candle_end_time
 
-# --- Caching for API calls ---
+def convert_symbol_to_oanda(symbol):
+    """Convert display symbol to OANDA instrument format"""
+    return SYMBOL_MAPPING.get(symbol, symbol.replace("/", "_"))
+
+# --- OANDA API Data Fetching ---
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_ohlc(symbol, start, end, interval="4h"):
-    """Fetch 4H OHLC data from Twelve Data within UTC range."""
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "start_date": start.strftime("%Y-%m-%d %H:%M:%S"),
-        "end_date": end.strftime("%Y-%m-%d %H:%M:%S"),
-        "apikey": API_KEY,
-        "timezone": "UTC",
-        "format": "JSON"
+    """Fetch 4H OHLC data from OANDA API within UTC range."""
+    
+    # Convert symbol to OANDA format
+    instrument = convert_symbol_to_oanda(symbol)
+    
+    # Convert interval to OANDA granularity
+    granularity_map = {
+        "1h": "H1",
+        "4h": "H4", 
+        "1d": "D",
+        "1w": "W"
     }
-    response = requests.get(BASE_URL, params=params).json()
-    values = response.get("values", [])
-    df = pd.DataFrame(values)
+    granularity = granularity_map.get(interval, "H4")
     
-    if not df.empty:
-        # Convert to IST
-        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-        df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
-        df = df.sort_values("datetime").reset_index(drop=True)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
-        
-        # Check if last candle is complete
-        if len(df) > 0:
-            last_candle_time = df.iloc[-1]['datetime']
-            df['is_complete'] = True
-            if not is_candle_complete(last_candle_time):
-                df.loc[df.index[-1], 'is_complete'] = False
-        
-        # Calculate ATR (excluding incomplete candles)
-        df = calculate_atr(df, period=21)
+    # Format dates for OANDA API (RFC3339)
+    from_time = start.strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+    to_time = end.strftime("%Y-%m-%dT%H:%M:%S.000000Z")
     
-    return df
+    # OANDA API endpoint
+    url = f"{BASE_URL}/instruments/{instrument}/candles"
+    
+    # Headers
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Parameters
+    params = {
+        "granularity": granularity,
+        "from": from_time,
+        "to": to_time,
+        "price": "M"  # Mid prices
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+        
+        candles = data.get("candles", [])
+        
+        if not candles:
+            return pd.DataFrame()
+        
+        # Convert OANDA response to DataFrame
+        df_data = []
+        for candle in candles:
+            if candle.get("complete", True):  # Only process if candle data is available
+                mid = candle.get("mid", {})
+                df_data.append({
+                    "datetime": candle["time"],
+                    "open": float(mid.get("o", 0)),
+                    "high": float(mid.get("h", 0)), 
+                    "low": float(mid.get("l", 0)),
+                    "close": float(mid.get("c", 0)),
+                    "volume": candle.get("volume", 0),
+                    "complete": candle.get("complete", True)
+                })
+        
+        df = pd.DataFrame(df_data)
+        
+        if not df.empty:
+            # Convert datetime to proper timezone
+            df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+            df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
+            df = df.sort_values("datetime").reset_index(drop=True)
+            
+            # Check if last candle is complete
+            if len(df) > 0:
+                last_candle_time = df.iloc[-1]['datetime']
+                df['is_complete'] = df['complete']
+                if not is_candle_complete(last_candle_time, 4):
+                    df.loc[df.index[-1], 'is_complete'] = False
+            
+            # Calculate ATR (excluding incomplete candles)
+            df = calculate_atr(df, period=21)
+        
+        return df
+        
+    except requests.exceptions.RequestException as e:
+        st.error(f"OANDA API Error: {e}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Data processing error: {e}")
+        return pd.DataFrame()
 
 # --- ATR Calculation ---
 def calculate_atr(df, period=21):
@@ -1016,7 +1097,7 @@ def display_pattern_metrics(df, selected_candles, atr, incomplete_warning=False)
 st.markdown("""
 <div class="main-header">
     <h1 style="margin: 0; font-size: 2.5rem;">🎯 Advanced Pattern Validator Pro</h1>
-    <p style="margin: 10px 0 0 0; font-size: 1.2rem; opacity: 0.9;">Professional Rally / Drop / Base Pattern Analysis with Dynamic ATR</p>
+    <p style="margin: 10px 0 0 0; font-size: 1.2rem; opacity: 0.9;">Professional Rally / Drop / Base Pattern Analysis with OANDA Real-Time Data</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1024,34 +1105,42 @@ st.markdown("""
 with st.sidebar:
     st.markdown("## ⚙️ **Analysis Configuration**")
     
-    # UPDATED: Enhanced Trading Symbol Selection with popular symbols
+    # UPDATED: Enhanced Trading Symbol Selection with OANDA supported symbols
     st.markdown("### 📈 **Trading Symbol**")
     
-    # Quick selection for popular symbols
-    popular_symbols = ["XAU/USD", "NAS100", "US30", "EUR/USD", "GBP/USD", "USD/JPY", "BTC/USD", "ETH/USD"]
+    # Quick selection for OANDA supported symbols
+    popular_symbols = ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"]
+    indices_symbols = ["US30", "NAS100", "SPX500", "UK100", "DE30", "FR40", "AU200"]
     
     col1, col2 = st.columns([2, 1])
     with col1:
-        symbol_option = st.selectbox(
-            "**Quick Select**",
-            options=["Custom"] + popular_symbols,
-            help="Choose from popular trading symbols or select Custom to enter your own"
+        symbol_category = st.selectbox(
+            "**Category**",
+            options=["Forex", "Metals", "Indices", "Custom"],
+            help="Choose symbol category"
         )
     
     with col2:
         if st.button("🔄", help="Refresh symbol list"):
             st.rerun()
     
-    if symbol_option == "Custom":
+    if symbol_category == "Forex":
+        symbol = st.selectbox("**Forex Pairs**", popular_symbols)
+    elif symbol_category == "Metals":
+        symbol = st.selectbox("**Precious Metals**", ["XAU/USD", "XAG/USD"])
+    elif symbol_category == "Indices":
+        symbol = st.selectbox("**Market Indices**", indices_symbols)
+    else:  # Custom
         symbol = st.text_input(
-            "**Enter Symbol**", 
-            value="XAU/USD",
-            help="Enter your trading pair (e.g., EUR/USD, BTC/USD, AAPL)",
+            "**Enter Custom Symbol**", 
+            value="EUR/USD",
+            help="Enter OANDA instrument symbol (e.g., EUR/USD, GBP/JPY)",
             placeholder="Enter custom symbol..."
         )
-    else:
-        symbol = symbol_option
-        st.info(f"Selected: **{symbol}**")
+    
+    # Display OANDA instrument format
+    oanda_symbol = convert_symbol_to_oanda(symbol)
+    st.info(f"OANDA Format: **{oanda_symbol}**")
     
     pattern = st.selectbox(
         "🎨 **Pattern Type**", 
@@ -1072,7 +1161,7 @@ with st.sidebar:
     
     # Enhanced ATR Settings
     st.markdown("### 📊 **ATR Configuration**")
-    use_auto_atr = st.checkbox("🤖 Auto-detect ATR", value=True, help="Automatically calculate ATR from market data")
+    use_auto_atr = st.checkbox("🤖 Auto-detect ATR", value=True, help="Automatically calculate ATR from OANDA data")
     if not use_auto_atr:
         current_atr = st.number_input(
             "📏 Manual ATR Value", 
@@ -1118,13 +1207,13 @@ with tab1:
                 help="Select the last N complete candles for pattern analysis (maximum 6 candles)"
             )
         with col2:
-            analyze_btn = st.button("**Analyze Pattern**", type="primary", width='stretch')
+            analyze_btn = st.button("**Analyze Pattern**", type="primary")
         
         if analyze_btn:
             end_utc = datetime.now(UTC)
             start_utc = end_utc - timedelta(days=10)
             
-            with st.spinner("🔄 Fetching market data and calculating technical indicators..."):
+            with st.spinner("🔄 Fetching OANDA market data and calculating technical indicators..."):
                 df = fetch_ohlc(symbol, start_utc, end_utc)
             
             if not df.empty:
@@ -1143,7 +1232,7 @@ with tab1:
                         </div>
                         """, unsafe_allow_html=True)
                     else:
-                        current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                        current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.0075
                         st.markdown(f"""
                         <div class="info-box">
                             📊 <strong>Auto-detected ATR:</strong> {current_atr:.4f}
@@ -1270,7 +1359,7 @@ with tab1:
             st.markdown(f"""
             <div style="
                 background: #e7f3ff;
-                color: #0c5460;             /* ← make your text darker */
+                color: #0c5460;
                 padding: 10px;
                 border-radius: 5px;
                 margin: 10px 0;
@@ -1310,7 +1399,7 @@ with tab1:
                             current_atr = df['atr'].iloc[-2]
                             st.success(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
                         else:
-                            current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                            current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.0075
                             st.success(f"📊 Auto-detected ATR: {current_atr:.4f}")
                     
                     sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
@@ -1343,7 +1432,7 @@ with tab1:
             end_utc = datetime.now(UTC)
             start_utc = end_utc - timedelta(days=15)
             
-            with st.spinner("🔄 Loading recent market data..."):
+            with st.spinner("🔄 Loading recent OANDA market data..."):
                 df = fetch_ohlc(symbol, start_utc, end_utc)
             
             if not df.empty:
@@ -1363,7 +1452,7 @@ with tab1:
                     current_atr = df['atr'].iloc[-2]
                     st.info(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
                 else:
-                    current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.75
+                    current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.0075
                     st.info(f"📊 Auto-detected ATR: {current_atr:.4f}")
             
             df_complete = df[df['is_complete']] if 'is_complete' in df.columns else df
@@ -1429,7 +1518,7 @@ with tab2:
             }
         }
         
-        st.plotly_chart(fig, width='stretch', config=chart_config)
+        st.plotly_chart(fig, use_container_width=True, config=chart_config)
         
         # FIXED: Chart insights with corrected time analysis logic
         if sel_df is not None and not sel_df.empty:
@@ -1529,7 +1618,7 @@ with tab3:
         # Enhanced data display
         st.dataframe(
             display_df,
-            width='stretch',
+            use_container_width=True,
             hide_index=True,
             height=500
         )
@@ -1544,11 +1633,11 @@ with tab3:
                 data=csv,
                 file_name=f"{symbol}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                width='stretch'
+                use_container_width=True
             )
         
         with col2:
-            if st.button("📈 **Quick Stats**", width='stretch'):
+            if st.button("📈 **Quick Stats**", use_container_width=True):
                 latest_prices = df[price_cols].iloc[-show_last_n:]
                 st.markdown(f"""
                 **📊 Market Summary (Last {show_last_n} Candles)**
@@ -1559,7 +1648,7 @@ with tab3:
                 """)
         
         with col3:
-            if 'atr' in df.columns and st.button("📊 **ATR Analysis**", width='stretch'):
+            if 'atr' in df.columns and st.button("📊 **ATR Analysis**", use_container_width=True):
                 recent_atr = df['atr'].iloc[-show_last_n:].dropna()
                 st.markdown(f"""
                 **📈 ATR Statistics (Last {len(recent_atr)} Periods)**
@@ -1634,8 +1723,8 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align: center; padding: 20px; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin-top: 30px;">
     <div style="color: white;">
-        <h4 style="margin: 0;">🎯 Pattern Validator Pro v4.0</h4>
-        <p style="margin: 5px 0 0 0; opacity: 0.9;">Professional Trading Pattern Analysis | Real-time Market Data | Advanced ATR Calculations</p>
+        <h4 style="margin: 0;">🎯 Pattern Validator Pro v4.0 - OANDA Edition</h4>
+        <p style="margin: 5px 0 0 0; opacity: 0.9;">Professional Trading Pattern Analysis | Real-time OANDA Data | Advanced ATR Calculations</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
