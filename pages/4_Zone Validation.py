@@ -1,5 +1,4 @@
 import streamlit as st
-import requests
 import pandas as pd
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -7,6 +6,8 @@ import pytz
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
+import requests
+import json
 
 # --- Page Config ---
 st.set_page_config(
@@ -105,9 +106,10 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
- #--- Twelve Data API ---
-API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
-BASE_URL = "https://api.twelvedata.com"
+# --- Oanda API ---
+API_KEY = st.secrets["OANDA_ALT"]["API_KEY"]
+ACCOUNT_ID = st.secrets["OANDA_ALT"]["ACCOUNT_ID"]
+OANDA_BASE_URL = "https://api-fxpractice.oanda.com"  # Use api-fxtrade.oanda.com for live accounts
 
 # --- Helper function to check if candle is complete ---
 def is_candle_complete(candle_time, interval_hours=4):
@@ -116,36 +118,121 @@ def is_candle_complete(candle_time, interval_hours=4):
     candle_end_time = candle_time + timedelta(hours=interval_hours)
     return current_time >= candle_end_time
 
+# --- Oanda API Helper Functions ---
+def get_oanda_headers():
+    """Get headers for Oanda API requests"""
+    return {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+def convert_oanda_instrument(symbol):
+    """Convert common symbol format to Oanda instrument format"""
+    # Map common symbols to Oanda format
+    symbol_map = {
+        "XAU/USD": "XAU_USD",
+        "NAS100": "NAS100_USD",
+        "US30": "US30_USD",
+        "EUR/USD": "EUR_USD",
+        "GBP/USD": "GBP_USD",
+        "USD/JPY": "USD_JPY",
+        "BTC/USD": "BTC_USD",
+        "ETH/USD": "ETH_USD"
+    }
+    
+    # Return mapped symbol or convert format by replacing / with _
+    return symbol_map.get(symbol, symbol.replace("/", "_"))
+
 # --- Caching for API calls ---
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def fetch_ohlc(symbol, start, end, interval="4h"):
-    """Fetch 4H OHLC data from Twelve Data within UTC range."""
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "start_date": start.strftime("%Y-%m-%d %H:%M:%S"),
-        "end_date": end.strftime("%Y-%m-%d %H:%M:%S"),
-        "apikey": API_KEY,
-        "timezone": "UTC",
-        "format": "JSON"
+def fetch_ohlc(symbol, start, end, interval="H4"):
+    """Fetch OHLC data from Oanda API within UTC range."""
+    
+    # Convert symbol to Oanda format
+    instrument = convert_oanda_instrument(symbol)
+    
+    # Convert interval to Oanda format
+    interval_map = {
+        "4h": "H4",
+        "1h": "H1",
+        "1d": "D",
+        "1w": "W"
     }
-    response = requests.get(BASE_URL, params=params).json()
-    values = response.get("values", [])
-    df = pd.DataFrame(values)
+    oanda_interval = interval_map.get(interval, "H4")
+    
+    # Calculate count based on time range (with buffer)
+    time_diff = end - start
+    hours_diff = time_diff.total_seconds() / 3600
+    
+    if oanda_interval == "H4":
+        count = int(hours_diff / 4) + 10  # Add buffer
+    elif oanda_interval == "H1":
+        count = int(hours_diff) + 10
+    elif oanda_interval == "D":
+        count = int(hours_diff / 24) + 10
+    elif oanda_interval == "W":
+        count = int(hours_diff / (24 * 7)) + 10
+    else:
+        count = 500  # Default max
+    
+    # Ensure count is within limits
+    count = min(count, 5000)
+    
+    # Format end time for Oanda
+    end_str = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Build URL
+    url = f"{OANDA_BASE_URL}/v3/instruments/{instrument}/candles"
+    
+    # Parameters
+    params = {
+        "price": "M",  # Midpoint candles
+        "granularity": oanda_interval,
+        "count": count,
+        "to": end_str,
+        "alignmentTimezone": "UTC"
+    }
+    
+    # Make request
+    response = requests.get(url, headers=get_oanda_headers(), params=params)
+    
+    if response.status_code != 200:
+        st.error(f"API Error: {response.status_code} - {response.text}")
+        return pd.DataFrame()
+    
+    # Parse response
+    data = response.json()
+    
+    if "candles" not in data:
+        return pd.DataFrame()
+    
+    # Extract candle data
+    candles = data["candles"]
+    
+    # Create DataFrame
+    records = []
+    for candle in candles:
+        time_str = candle["time"]
+        time = datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+        
+        # Only include candles within our date range
+        if time >= start and time <= end:
+            record = {
+                "datetime": time,
+                "open": float(candle["mid"]["o"]),
+                "high": float(candle["mid"]["h"]),
+                "low": float(candle["mid"]["l"]),
+                "close": float(candle["mid"]["c"]),
+                "is_complete": candle["complete"]
+            }
+            records.append(record)
+    
+    df = pd.DataFrame(records)
     
     if not df.empty:
         # Convert to IST
-        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
         df = df.sort_values("datetime").reset_index(drop=True)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
-        
-        # Check if last candle is complete
-        if len(df) > 0:
-            last_candle_time = df.iloc[-1]['datetime']
-            df['is_complete'] = True
-            if not is_candle_complete(last_candle_time):
-                df.loc[df.index[-1], 'is_complete'] = False
         
         # Calculate ATR (excluding incomplete candles)
         df = calculate_atr(df, period=21)
