@@ -21,7 +21,7 @@ st.markdown("""
 <style>
     .stButton>button {
         width: 100%;
-        background: linear-gradient(45deg, #4CAF50, #45a049);
+        background: linear-gradient(45deg, #E74C3C, #C0392B);
         color: white;
         font-weight: bold;
         border: none;
@@ -30,8 +30,8 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     .stButton>button:hover {
-        background: linear-gradient(45deg, #45a049, #4CAF50);
-        box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+        background: linear-gradient(45deg, #C0392B, #E74C3C);
+        box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
         transform: translateY(-2px);
     }
     .success-box {
@@ -492,17 +492,21 @@ def validate_pattern_detailed(candles, atr, pattern):
     overall = all(results.values())
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
 
-# --- ENHANCED Plot function with modern dashboard styling ---
+# --- ENHANCED Plot function with improved styling and boundaries ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create enhanced combined chart with modern dashboard styling"""
+    """Create enhanced combined chart with improved pattern visualization and optimized spacing"""
+    
     # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
     
-    # Show last 7 days of data for ATR graph
+    # For ATR chart, use only data where ATR exists (remove blank space)
     if len(df_with_atr) > 42:
-        last_7_days = df_with_atr.tail(42)
+        atr_data = df_with_atr.tail(42)
     else:
-        last_7_days = df_with_atr
+        atr_data = df_with_atr
+    
+    # Remove any NaN values from ATR data to eliminate blank space
+    atr_data = atr_data.dropna(subset=['atr']) if 'atr' in atr_data.columns else atr_data
     
     rows = 2 if show_atr else 1
     row_heights = [0.65, 0.35] if show_atr else [1.0]
@@ -513,28 +517,29 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         vertical_spacing=0.03,
         row_heights=row_heights,
         subplot_titles=(
-            '<b style="color:#2E86C1; font-size:18px;">📊 Price Action Analysis</b>',
-            '<b style="color:#E74C3C; font-size:16px;">📈 ATR Momentum (21 Period)</b>'
-        ) if show_atr else ('<b style="color:#2E86C1; font-size:18px;">📊 Price Action Analysis</b>',)
+            '<b style="color:#2E86C1; font-size:18px;">📊 Trading Pattern Analysis Dashboard</b>',
+            '<b style="color:#E74C3C; font-size:16px;">📈 ATR Volatility Indicator (21-Period)</b>'
+        ) if show_atr else ('<b style="color:#2E86C1; font-size:18px;">📊 Trading Pattern Analysis Dashboard</b>',)
     )
     
-    # Enhanced Price Chart with gradient colors
+    # Enhanced Price Chart with better colors
     bullish_color = '#00D4AA'
     bearish_color = '#FF6B6B'
     
+    # Main candlestick chart
     fig.add_trace(go.Candlestick(
         x=df['datetime_ist'],
         open=df['open'],
         high=df['high'],
         low=df['low'],
         close=df['close'],
-        name='Price Action',
+        name='OHLC Data',
         increasing_line_color=bullish_color,
         decreasing_line_color=bearish_color,
         increasing_fillcolor=bullish_color,
         decreasing_fillcolor=bearish_color,
         line=dict(width=1.5),
-        hoverinfo='x+open+high+low+close'
+        hoverinfo='all'
     ), row=1, col=1)
     
     # Enhanced incomplete candles markers
@@ -556,68 +561,96 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 textposition="middle center",
                 name='Forming Candle',
                 showlegend=True,
-                hovertemplate='<b>Status</b>: Candle Forming<br><extra></extra>'
+                hovertemplate='<b>Status</b>: Candle Still Forming<br><extra></extra>'
             ), row=1, col=1)
     
-    # Enhanced selected candles markers with glow effect
+    # IMPROVED: Pattern boundary visualization instead of star markers
     if selected_candles_df is not None and not selected_candles_df.empty:
+        # Get the boundary coordinates
+        min_time = selected_candles_df['datetime_ist'].min()
+        max_time = selected_candles_df['datetime_ist'].max()
+        min_price = selected_candles_df['low'].min()
+        max_price = selected_candles_df['high'].max()
+        
+        # Add pattern boundary rectangle
+        fig.add_shape(
+            type="rect",
+            x0=min_time,
+            y0=min_price * 0.9985,  # Slightly below the lowest point
+            x1=max_time,
+            y1=max_price * 1.0015,  # Slightly above the highest point
+            line=dict(
+                color="#FFD700",
+                width=3,
+                dash="dot"
+            ),
+            fillcolor="rgba(255, 215, 0, 0.1)",
+            row=1, col=1
+        )
+        
+        # Add inverted triangle markers above selected candles
         fig.add_trace(go.Scatter(
             x=selected_candles_df['datetime_ist'],
             y=selected_candles_df['high'] * 1.005,
-            mode='markers',
+            mode='markers+text',
             marker=dict(
-                symbol='star',
-                size=20,
+                symbol='triangle-down',
+                size=18,
                 color='#FFD700',
                 line=dict(color='#FF8C00', width=2),
                 opacity=0.9
             ),
-            name='Selected Pattern',
+            text='🔻',
+            textfont=dict(size=10),
+            textposition="middle center",
+            name='Pattern Zone',
             showlegend=True,
-            hovertemplate='<b>Selected Candle</b><br>%{x}<br><extra></extra>'
+            hovertemplate='<b>Selected Pattern Candle</b><br>Time: %{x}<br><extra></extra>'
         ), row=1, col=1)
         
-        # Add connecting line for selected candles
-        if len(selected_candles_df) > 1:
-            fig.add_trace(go.Scatter(
-                x=selected_candles_df['datetime_ist'],
-                y=selected_candles_df['close'],
-                mode='lines',
-                line=dict(
-                    color='#FFD700',
-                    width=3,
-                    dash='dot'
-                ),
-                name='Pattern Connection',
-                opacity=0.7,
-                showlegend=False,
-                hoverinfo='skip'
-            ), row=1, col=1)
+        # Add pattern information annotation
+        pattern_info = f"Pattern: {len(selected_candles_df)} candles"
+        fig.add_annotation(
+            x=min_time,
+            y=max_price * 1.01,
+            text=f"<b>{pattern_info}</b>",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor='#FFD700',
+            font=dict(size=11, color='#FFD700', family="Arial"),
+            bgcolor='rgba(255, 215, 0, 0.2)',
+            bordercolor='#FFD700',
+            borderwidth=1,
+            borderpad=4,
+            row=1, col=1
+        )
     
-    # Enhanced ATR Chart with gradient fill and modern styling
-    if show_atr and 'atr' in last_7_days.columns and not last_7_days['atr'].isna().all():
-        # Create gradient background
+    # FIXED: Enhanced ATR Chart with proper spacing (no blank areas)
+    if show_atr and 'atr' in atr_data.columns and not atr_data['atr'].isna().all():
+        # Create gradient background for ATR
         fig.add_trace(go.Scatter(
-            x=last_7_days['datetime_ist'],
-            y=last_7_days['atr'],
+            x=atr_data['datetime_ist'],
+            y=atr_data['atr'],
             mode='lines',
-            name='ATR Trend',
+            name='ATR Background',
             line=dict(
                 color='rgba(46, 134, 193, 0)',
                 width=0
             ),
             fill='tozeroy',
-            fillcolor='rgba(46, 134, 193, 0.1)',
+            fillcolor='rgba(46, 134, 193, 0.15)',
             showlegend=False,
             hoverinfo='skip'
         ), row=2, col=1)
         
         # Main ATR line with enhanced styling
         fig.add_trace(go.Scatter(
-            x=last_7_days['datetime_ist'],
-            y=last_7_days['atr'],
+            x=atr_data['datetime_ist'],
+            y=atr_data['atr'],
             mode='lines+markers',
-            name='ATR',
+            name='ATR (21)',
             line=dict(
                 color='#2E86C1',
                 width=3,
@@ -628,17 +661,17 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 color='#2E86C1',
                 line=dict(color='white', width=1)
             ),
-            showlegend=False,
+            showlegend=True,
             hovertemplate='<b>ATR Value</b>: %{y:.4f}<br><b>Time</b>: %{x}<br><extra></extra>'
         ), row=2, col=1)
         
         # Enhanced projected ATR points
-        if 'atr_projected' in last_7_days.columns:
-            projected_df = last_7_days[last_7_days['atr_projected']]
-            if not projected_df.empty:
+        if 'atr_projected' in atr_data.columns:
+            projected_atr = atr_data[atr_data['atr_projected']]
+            if not projected_atr.empty:
                 fig.add_trace(go.Scatter(
-                    x=projected_df['datetime_ist'],
-                    y=projected_df['atr'],
+                    x=projected_atr['datetime_ist'],
+                    y=projected_atr['atr'],
                     mode='markers',
                     marker=dict(
                         symbol='diamond',
@@ -646,18 +679,22 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                         color='#F39C12',
                         line=dict(color='white', width=2)
                     ),
-                    name='Projected ATR',
+                    name='ATR Projected',
                     showlegend=True,
                     hovertemplate='<b>Projected ATR</b>: %{y:.4f}<br><extra></extra>'
                 ), row=2, col=1)
         
-        # Current ATR reference line with enhanced styling
-        if not last_7_days['atr'].isna().all():
-            current_atr = last_7_days['atr'].iloc[-1] if not last_7_days['atr_projected'].iloc[-1] else last_7_days['atr'].iloc[-2]
+        # Current ATR reference line
+        if not atr_data['atr'].isna().all():
+            current_atr_row = atr_data[~atr_data.get('atr_projected', False)]
+            if not current_atr_row.empty:
+                current_atr = current_atr_row['atr'].iloc[-1]
+            else:
+                current_atr = atr_data['atr'].iloc[-1]
             
             # Add horizontal reference line
             fig.add_trace(go.Scatter(
-                x=[last_7_days['datetime_ist'].iloc[0], last_7_days['datetime_ist'].iloc[-1]],
+                x=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
                 y=[current_atr, current_atr],
                 mode='lines',
                 line=dict(
@@ -665,11 +702,12 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                     width=2,
                     dash='dashdot'
                 ),
-                showlegend=False,
-                hovertemplate=f'<b>Current ATR</b>: {current_atr:.4f}<br><extra></extra>'
+                name='Current ATR',
+                showlegend=True,
+                hovertemplate=f'<b>Current ATR Level</b>: {current_atr:.4f}<br><extra></extra>'
             ), row=2, col=1)
             
-            # Enhanced annotation
+            # Enhanced annotation for current ATR
             fig.add_annotation(
                 xref="paper",
                 yref="y2",
@@ -682,24 +720,21 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 arrowwidth=2,
                 arrowcolor='#E74C3C',
                 font=dict(size=12, color='#E74C3C', family="Arial Black"),
-                bgcolor='rgba(231, 76, 60, 0.1)',
+                bgcolor='rgba(231, 76, 60, 0.15)',
                 bordercolor='#E74C3C',
                 borderwidth=2,
                 borderpad=4
             )
         
-        # ATR statistics
-        atr_mean = last_7_days['atr'].mean()
-        atr_std = last_7_days['atr'].std()
-        
-        # Add mean line
+        # ATR average line
+        atr_mean = atr_data['atr'].mean()
         fig.add_trace(go.Scatter(
-            x=[last_7_days['datetime_ist'].iloc[0], last_7_days['datetime_ist'].iloc[-1]],
+            x=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
             y=[atr_mean, atr_mean],
             mode='lines',
             line=dict(
                 color='#9B59B6',
-                width=1,
+                width=1.5,
                 dash='dash'
             ),
             name='ATR Average',
@@ -707,21 +742,27 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             hovertemplate=f'<b>ATR Average</b>: {atr_mean:.4f}<br><extra></extra>'
         ), row=2, col=1)
         
-        # Set ATR y-axis range with better spacing
-        atr_min = last_7_days['atr'].min() * 0.92
-        atr_max = last_7_days['atr'].max() * 1.08
+        # FIXED: Set ATR y-axis range to eliminate blank space
+        atr_min = atr_data['atr'].min() * 0.95
+        atr_max = atr_data['atr'].max() * 1.05
         
         fig.update_yaxes(
             range=[atr_min, atr_max],
             row=2, col=1,
             fixedrange=False
         )
+        
+        # FIXED: Set ATR x-axis range to start from where data begins
+        fig.update_xaxes(
+            range=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
+            row=2, col=1
+        )
     
     # Enhanced Layout with modern dashboard styling
     fig.update_layout(
         height=850,
-        template="plotly_dark",  # Using dark theme for dashboard feel
-        paper_bgcolor='rgba(0,0,0,0)',  # Transparent background
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         showlegend=True,
         legend=dict(
@@ -733,7 +774,8 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             bgcolor='rgba(255, 255, 255, 0.1)',
             bordercolor='rgba(255, 255, 255, 0.2)',
             borderwidth=1,
-            font=dict(size=11, color='white')
+            font=dict(size=11, color='white'),
+            itemsizing="constant"
         ),
         hovermode='x unified',
         margin=dict(l=70, r=100, t=100, b=60),
@@ -1066,7 +1108,7 @@ with tab1:
                 help="Select the last N complete candles for pattern analysis (maximum 6 candles)"
             )
         with col2:
-            analyze_btn = st.button("🚀 **Analyze Pattern**", type="primary", use_container_width=True)
+            analyze_btn = st.button("**Analyze Pattern**", type="primary", use_container_width=True)
         
         if analyze_btn:
             end_utc = datetime.now(UTC)
@@ -1138,7 +1180,7 @@ with tab1:
             end_date = st.date_input("Date ", value=datetime.now(IST).date())
             end_time = st.time_input("Time (IST) ", value=datetime.now(IST).time())
         
-        if st.button("🔍 **Validate Time Range**", type="primary"):
+        if st.button("**Validate Time Range**", type="primary"):
             start_ist = IST.localize(datetime.combine(start_date, start_time))
             end_ist = IST.localize(datetime.combine(end_date, end_time))
             start_utc = start_ist.astimezone(UTC) - timedelta(days=5)
@@ -1183,7 +1225,7 @@ with tab1:
     else:  # Custom selection
         st.markdown("### 🎯 **Custom Candle Selection**")
         
-        if st.button("📥 **Load Recent Market Data**", type="primary"):
+        if st.button("**Load Recent Market Data**", type="primary"):
             end_utc = datetime.now(UTC)
             start_utc = end_utc - timedelta(days=15)
             
@@ -1225,7 +1267,7 @@ with tab1:
                 help="Select up to 6 candles for pattern analysis"
             )
             
-            if indices and st.button("✅ **Validate Selected Pattern**", type="primary"):
+            if indices and st.button("**Validate Selected Pattern**", type="primary"):
                 indices = sorted(indices)
                 candles = [
                     dict(open=df.loc[idx,'open'], high=df.loc[idx,'high'], 
