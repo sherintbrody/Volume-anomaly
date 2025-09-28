@@ -246,15 +246,15 @@ def create_sound_alert():
 # Check if we have secrets (Streamlit Cloud) or use fallback
 try:
     # --- Twelve Data API ---
-    API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
-    ACCOUNT_ID = st.secrets["TWELVE_DATA"]["ACCOUNT_ID"]
+    API_KEY = st.secrets["API_KEY"]
+    ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
     BASE_URL = "https://api-fxpractice.oanda.com/v3"
     TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 except:
     # Fallback for local development - REMOVE THESE IN PRODUCTION
-    API_KEY = os.environ.get("OANDA_API_KEY", "")
-    ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "")
+    API_KEY = os.environ.get("API_KEY", "")
+    ACCOUNT_ID = os.environ.get("ACCOUNT_ID", "")
     TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
