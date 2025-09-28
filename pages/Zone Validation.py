@@ -526,14 +526,21 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     # Enhanced Price Chart with better colors
     bullish_color = '#00D4AA'
     bearish_color = '#FF6B6B'
-    
-    # Main candlestick chart
+    # --- Enforce between 21 and 25 candles on price chart ---
+    if len(df) < 21:
+        price_data = df  # fallback if dataset itself has <21
+    elif len(df) <= 25:
+        price_data = df  # show all if between 21 and 25
+    else:
+        price_data = df.tail(25)  # cap at 25
+
+    # Main candlestick chart (price level)
     fig.add_trace(go.Candlestick(
-        x=df['datetime_ist'],
-        open=df['open'],
-        high=df['high'],
-        low=df['low'],
-        close=df['close'],
+        x=price_data['datetime_ist'],
+        open=price_data['open'],
+        high=price_data['high'],
+        low=price_data['low'],
+        close=price_data['close'],
         name='OHLC Data',
         increasing_line_color=bullish_color,
         decreasing_line_color=bearish_color,
@@ -542,6 +549,8 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         line=dict(width=1.5),
         hoverinfo='all'
     ), row=1, col=1)
+
+    
     
     # Enhanced incomplete candles markers
     if 'is_complete' in df.columns:
