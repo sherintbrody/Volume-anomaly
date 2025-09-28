@@ -21,7 +21,7 @@ st.markdown("""
 <style>
     .stButton>button {
         width: 100%;
-        background: linear-gradient(45deg, #E74C3C, #C0392B);
+        background: linear-gradient(45deg, #4CAF50, #45a049);
         color: white;
         font-weight: bold;
         border: none;
@@ -30,8 +30,8 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     .stButton>button:hover {
-        background: linear-gradient(45deg, #C0392B, #E74C3C);
-        box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
+        background: linear-gradient(45deg, #45a049, #4CAF50);
+        box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
         transform: translateY(-2px);
     }
     .success-box {
@@ -492,9 +492,9 @@ def validate_pattern_detailed(candles, atr, pattern):
     overall = all(results.values())
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
 
-# --- COMPLETELY FIXED Plot function with proper hoverinfo handling ---
+# --- ENHANCED Plot function with modern dashboard styling ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create enhanced combined chart with modern dashboard styling - FIXED hoverinfo"""
+    """Create enhanced combined chart with modern dashboard styling"""
     # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
     
@@ -518,11 +518,10 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         ) if show_atr else ('<b style="color:#2E86C1; font-size:18px;">📊 Price Action Analysis</b>',)
     )
     
-    # Enhanced Price Chart - COMPLETELY FIXED with proper parameters only
+    # Enhanced Price Chart with gradient colors
     bullish_color = '#00D4AA'
     bearish_color = '#FF6B6B'
     
-    # Create candlestick trace with ONLY valid parameters
     fig.add_trace(go.Candlestick(
         x=df['datetime_ist'],
         open=df['open'],
@@ -535,8 +534,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         increasing_fillcolor=bullish_color,
         decreasing_fillcolor=bearish_color,
         line=dict(width=1.5),
-        # Using 'all' for hoverinfo - this is valid for candlestick charts
-        hoverinfo='all'
+        hoverinfo='x+open+high+low+close'
     ), row=1, col=1)
     
     # Enhanced incomplete candles markers
@@ -692,6 +690,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
         
         # ATR statistics
         atr_mean = last_7_days['atr'].mean()
+        atr_std = last_7_days['atr'].std()
         
         # Add mean line
         fig.add_trace(go.Scatter(
@@ -1067,7 +1066,7 @@ with tab1:
                 help="Select the last N complete candles for pattern analysis (maximum 6 candles)"
             )
         with col2:
-            analyze_btn = st.button("**Analyze Pattern**", type="primary", use_container_width=True)
+            analyze_btn = st.button("🚀 **Analyze Pattern**", type="primary", use_container_width=True)
         
         if analyze_btn:
             end_utc = datetime.now(UTC)
@@ -1139,7 +1138,7 @@ with tab1:
             end_date = st.date_input("Date ", value=datetime.now(IST).date())
             end_time = st.time_input("Time (IST) ", value=datetime.now(IST).time())
         
-        if st.button("**Validate Time Range**", type="primary"):
+        if st.button("🔍 **Validate Time Range**", type="primary"):
             start_ist = IST.localize(datetime.combine(start_date, start_time))
             end_ist = IST.localize(datetime.combine(end_date, end_time))
             start_utc = start_ist.astimezone(UTC) - timedelta(days=5)
@@ -1184,7 +1183,7 @@ with tab1:
     else:  # Custom selection
         st.markdown("### 🎯 **Custom Candle Selection**")
         
-        if st.button("**Load Recent Market Data**", type="primary"):
+        if st.button("📥 **Load Recent Market Data**", type="primary"):
             end_utc = datetime.now(UTC)
             start_utc = end_utc - timedelta(days=15)
             
@@ -1226,7 +1225,7 @@ with tab1:
                 help="Select up to 6 candles for pattern analysis"
             )
             
-            if indices and st.button("**Validate Selected Pattern**", type="primary"):
+            if indices and st.button("✅ **Validate Selected Pattern**", type="primary"):
                 indices = sorted(indices)
                 candles = [
                     dict(open=df.loc[idx,'open'], high=df.loc[idx,'high'], 
@@ -1463,6 +1462,7 @@ st.markdown("""
     <div style="color: white;">
         <h4 style="margin: 0;">🎯 Pattern Validator Pro v4.0</h4>
         <p style="margin: 5px 0 0 0; opacity: 0.9;">Professional Trading Pattern Analysis | Real-time Market Data | Advanced ATR Calculations</p>
+        <small style="opacity: 0.7;">Built with ❤️ for traders | Powered by Twelve Data API</small>
     </div>
 </div>
 """, unsafe_allow_html=True)
