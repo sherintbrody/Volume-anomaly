@@ -10,8 +10,6 @@ import wcwidth
 from streamlit_autorefresh import st_autorefresh
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import asyncio
-import aiohttp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time as time_module
 import base64
@@ -245,12 +243,30 @@ def create_sound_alert():
     return sound_html
 
 # ====== SECURE CONFIG ======
-API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
-ACCOUNT_ID = "101-004-37091392-001"
-BASE_URL = "https://api-fxpractice.oanda.com/v3"
+# Check if we have secrets (Streamlit Cloud) or use fallback
+try:
+    API_KEY = st.secrets["OANDA_API_KEY"]
+    ACCOUNT_ID = st.secrets["OANDA_ACCOUNT_ID"]
+    TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+except:
+    # Fallback for local development - REMOVE THESE IN PRODUCTION
+    API_KEY = os.environ.get("OANDA_API_KEY", "")
+    ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "")
+    TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 if not API_KEY or not ACCOUNT_ID:
     st.error("⚠️ Please configure OANDA_API_KEY and OANDA_ACCOUNT_ID in .streamlit/secrets.toml")
+    st.info("""
+    Create a file `.streamlit/secrets.toml` with:
+    ```
+    OANDA_API_KEY = "your-api-key"
+    OANDA_ACCOUNT_ID = "your-account-id"
+    TELEGRAM_BOT_TOKEN = "optional-bot-token"
+    TELEGRAM_CHAT_ID = "optional-chat-id"
+    ```
+    """)
     st.stop()
 
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
@@ -291,11 +307,6 @@ def cache_key_generator(*args, **kwargs):
     """Generate cache key for complex arguments"""
     key_str = str(args) + str(sorted(kwargs.items()))
     return hashlib.md5(key_str.encode()).hexdigest()
-
-@lru_cache(maxsize=128)
-def get_cached_candles(cache_key):
-    """LRU cache for candle data"""
-    return None
 
 def smart_cache(ttl_seconds=300):
     """Smart caching decorator with TTL"""
@@ -342,10 +353,15 @@ def batch_fetch_candles(instruments, from_time, to_time, granularity="M15"):
         
         return results
 
-@smart_cache(ttl_seconds=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_candles_optimized(instrument_code, from_time, to_time, granularity="M15"):
     """Optimized candle fetching with rate limiting and retry"""
     rate_limiter.wait_if_needed()
+    
+    # Ensure times are UTC
+    now_utc = datetime.now(UTC)
+    from_time = min(from_time, now_utc)
+    to_time = min(to_time, now_utc)
     
     max_retries = 3
     for attempt in range(max_retries):
@@ -405,6 +421,7 @@ def reset_if_new_day():
 # ====== SIDEBAR CONFIG ======
 st.sidebar.markdown("## ⚙️ **Control Panel**")
 
+# Initialize session state
 if "selected_instruments" not in st.session_state:
     st.session_state.selected_instruments = list(INSTRUMENTS.keys())
 if "refresh_minutes" not in st.session_state:
@@ -552,7 +569,7 @@ def get_body_percentage(candle):
 def is_weekend(date):
     return date.weekday() in [5, 6]
 
-@smart_cache(ttl_seconds=600)
+@st.cache_data(ttl=600)
 def compute_lazy_averages(code, bucket_size_minutes, granularity, skip_weekends=True):
     """Lazy load and compute averages"""
     if granularity == "H4":
@@ -650,7 +667,21 @@ def create_volume_chart(name, rows, threshold, is_spike):
     if not rows or not st.session_state.show_charts:
         return None
     
-    df = pd.DataFrame(rows[-20:], columns=["Time", "Bucket", "Open", "High", "Low", "Close", "Volume", "Spike", "Sentiment"])
+    # Convert rows to DataFrame
+    df_data = []
+    for row in rows[-20:]:
+        df_data.append({
+            "Time": row[0],
+            "Open": float(row[2]),
+            "High": float(row[3]),
+            "Low": float(row[4]),
+            "Close": float(row[5]),
+            "Volume": row[6],
+            "Spike": row[7],
+            "Sentiment": row[8]
+        })
+    
+    df = pd.DataFrame(df_data)
     
     fig = make_subplots(
         rows=2, cols=1,
@@ -663,10 +694,10 @@ def create_volume_chart(name, rows, threshold, is_spike):
     fig.add_trace(
         go.Candlestick(
             x=df["Time"],
-            open=df["Open"].astype(float),
-            high=df["High"].astype(float),
-            low=df["Low"].astype(float),
-            close=df["Close"].astype(float),
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
             name="Price",
             increasing_line_color='#10b981',
             decreasing_line_color='#ef4444'
@@ -837,18 +868,24 @@ def render_modern_card(name, rows, bucket_minutes, summary, threshold, is_4h_mod
     
     # Data table with modern styling
     with st.expander("📋 Detailed Data", expanded=False):
-        df = pd.DataFrame(rows[-DISPLAY_ROWS:], columns=[
-            "Time", "Bucket", "Open", "High", "Low", "Close", "Volume", "Spike", "Sentiment"
-        ])
+        # Prepare DataFrame
+        df_data = []
+        for row in rows[-DISPLAY_ROWS:]:
+            df_data.append({
+                "Time": row[0],
+                "Bucket": row[1],
+                "Open": row[2],
+                "High": row[3],
+                "Low": row[4],
+                "Close": row[5],
+                "Volume": row[6],
+                "Spike": "Yes" if row[7] else "No",
+                "Sentiment": row[8]
+            })
         
-        # Style spike rows
-        def highlight_spikes(row):
-            if row['Spike']:
-                return ['background-color: rgba(239, 68, 68, 0.2)'] * len(row)
-            return [''] * len(row)
+        df = pd.DataFrame(df_data)
         
-        styled_df = df.style.apply(highlight_spikes, axis=1)
-        st.dataframe(styled_df, height=300, use_container_width=True)
+        st.dataframe(df, height=300, use_container_width=True)
         
         # Export button
         csv = df.to_csv(index=False).encode('utf-8')
