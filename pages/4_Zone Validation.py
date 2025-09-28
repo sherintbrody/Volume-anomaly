@@ -105,10 +105,8 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-# --- OANDA API ---
-API_KEY = "5a0f5c6147a2bd7c832d63a6252f0c01-041561ca55b1549327e8c00f3d645f13"
-ACCOUNT_ID = "101-004-37091392-001"
-BASE_URL = "https://api-fxpractice.oanda.com/v3"
+ --- Twelve Data API ---
+API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
 
 # --- Helper function to check if candle is complete ---
 def is_candle_complete(candle_time, interval_hours=4):
