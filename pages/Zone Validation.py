@@ -451,13 +451,21 @@ def validate_pattern_detailed(candles, atr, pattern):
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
 
 # --- Enhanced Plot function ---
+
+# --- Enhanced Plot function ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
     """Create combined chart with price and ATR"""
-    # Show last 7 days of data for ATR graph
-    last_7_days = df.tail(42)  # Approximately 7 days of 4H candles
+    # Get data with valid ATR values only
+    df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
+    
+    # Show last 7 days of data for ATR graph (but only where ATR exists)
+    if len(df_with_atr) > 42:
+        last_7_days = df_with_atr.tail(42)  # Approximately 7 days of 4H candles
+    else:
+        last_7_days = df_with_atr
     
     rows = 2 if show_atr else 1
-    row_heights = [0.65, 0.35] if show_atr else [1.0]
+    row_heights = [0.55, 0.45] if show_atr else [1.0]  # Give more space to ATR
     
     fig = make_subplots(
         rows=rows, cols=1,
@@ -505,16 +513,28 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             showlegend=True
         ), row=1, col=1)
     
-    # ATR chart - Last 7 days only
-    if show_atr and 'atr' in last_7_days.columns:
-        # Main ATR line
+    # ATR chart - Only show where data exists
+    if show_atr and 'atr' in last_7_days.columns and not last_7_days['atr'].isna().all():
+        # Main ATR line with filled area
         fig.add_trace(go.Scatter(
             x=last_7_days['datetime_ist'],
             y=last_7_days['atr'],
             mode='lines',
             name='ATR',
-            line=dict(color='#2196f3', width=2),
+            line=dict(color='#2196f3', width=2.5),
+            fill='tozeroy',
+            fillcolor='rgba(33, 150, 243, 0.1)',
             showlegend=False
+        ), row=2, col=1)
+        
+        # Add markers for better visibility
+        fig.add_trace(go.Scatter(
+            x=last_7_days['datetime_ist'],
+            y=last_7_days['atr'],
+            mode='markers',
+            marker=dict(size=4, color='#2196f3'),
+            showlegend=False,
+            hovertemplate='ATR: %{y:.4f}<extra></extra>'
         ), row=2, col=1)
         
         # Mark projected ATR points
@@ -525,26 +545,59 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                     x=projected_df['datetime_ist'],
                     y=projected_df['atr'],
                     mode='markers',
-                    marker=dict(symbol='circle-open', size=8, color='orange'),
+                    marker=dict(symbol='circle-open', size=10, color='orange', line=dict(width=2)),
                     name='Projected',
                     showlegend=True
                 ), row=2, col=1)
         
-        # Add current ATR line
+        # Add current ATR line with annotation
         if not last_7_days['atr'].isna().all():
             current_atr = last_7_days['atr'].iloc[-1] if not last_7_days['atr_projected'].iloc[-1] else last_7_days['atr'].iloc[-2]
-            fig.add_hline(
-                y=current_atr, 
-                line_dash="dash", 
-                line_color="#ff5722",
-                annotation_text=f"Current: {current_atr:.4f}",
-                annotation_position="right",
-                row=2, col=1
+            
+            # Add horizontal line for current ATR
+            fig.add_trace(go.Scatter(
+                x=[last_7_days['datetime_ist'].iloc[0], last_7_days['datetime_ist'].iloc[-1]],
+                y=[current_atr, current_atr],
+                mode='lines',
+                line=dict(color='#ff5722', width=1.5, dash='dash'),
+                showlegend=False,
+                hovertemplate=f'Current ATR: {current_atr:.4f}<extra></extra>'
+            ), row=2, col=1)
+            
+            # Add annotation for current ATR
+            fig.add_annotation(
+                xref="paper",
+                yref="y2",
+                x=1.02,
+                y=current_atr,
+                text=f"{current_atr:.4f}",
+                showarrow=False,
+                font=dict(size=10, color='#ff5722'),
+                bgcolor='white',
+                bordercolor='#ff5722',
+                borderwidth=1
             )
+        
+        # Calculate and set ATR y-axis range for better fit
+        atr_min = last_7_days['atr'].min() * 0.95  # 5% padding below
+        atr_max = last_7_days['atr'].max() * 1.05  # 5% padding above
+        
+        # Update ATR y-axis range
+        fig.update_yaxes(
+            range=[atr_min, atr_max],
+            row=2, col=1,
+            fixedrange=False
+        )
+        
+        # Update ATR x-axis to show only where data exists
+        fig.update_xaxes(
+            range=[last_7_days['datetime_ist'].iloc[0], last_7_days['datetime_ist'].iloc[-1]],
+            row=2, col=1
+        )
     
     # Update layout
     fig.update_layout(
-        height=650,
+        height=750,  # Increased height for better ATR visibility
         xaxis_rangeslider_visible=False,
         template="plotly_white",
         showlegend=True,
@@ -552,16 +605,54 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             yanchor="top",
             y=0.99,
             xanchor="left",
-            x=0.01
+            x=0.01,
+            bgcolor='rgba(255, 255, 255, 0.8)',
+            bordercolor='#CCCCCC',
+            borderwidth=1
         ),
         hovermode='x unified',
-        margin=dict(l=50, r=50, t=80, b=50)
+        margin=dict(l=60, r=80, t=80, b=60),  # Adjusted margins for better fit
+        plot_bgcolor='white',
+        paper_bgcolor='white'
     )
     
-    fig.update_xaxes(title_text="Time (IST)", row=rows, col=1)
-    fig.update_yaxes(title_text="Price", row=1, col=1)
+    # Update x-axes
+    fig.update_xaxes(
+        title_text="Time (IST)", 
+        row=rows, col=1,
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='#f0f0f0',
+        showline=True,
+        linewidth=1,
+        linecolor='#CCCCCC'
+    )
+    
+    # Update y-axes for Price
+    fig.update_yaxes(
+        title_text="Price", 
+        row=1, col=1,
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='#f0f0f0',
+        showline=True,
+        linewidth=1,
+        linecolor='#CCCCCC'
+    )
+    
+    # Update y-axes for ATR with better formatting
     if show_atr:
-        fig.update_yaxes(title_text="ATR", row=2, col=1)
+        fig.update_yaxes(
+            title_text="ATR Value", 
+            row=2, col=1,
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='#f0f0f0',
+            showline=True,
+            linewidth=1,
+            linecolor='#CCCCCC',
+            tickformat='.4f'  # Show 4 decimal places
+        )
     
     return fig
 
