@@ -259,6 +259,10 @@ def send_telegram_alert(message: str):
         r.raise_for_status()
     except Exception as e:
         st.error(f"Telegram send failed: {e}")
+    if st.button("Send Test Telegram Alert"):
+    send_telegram_alert("✅ Test message from Streamlit app")
+    st.success("Test alert sent — check your Telegram chat")
+
         
 # ====== SECURE CONFIG ======
 # Check if we have secrets (Streamlit Cloud) or use fallback
