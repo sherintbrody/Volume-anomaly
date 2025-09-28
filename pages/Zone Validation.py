@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 # --- Twelve Data API ---
-API_KEY = st.secrets["TWELVE_DATA"]["9497fde228f249b88beeb24558f14f12"]
+API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
 BASE_URL = "https://api.twelvedata.com/time_series"
 
 def fetch_ohlc(symbol, start, end, interval="4h"):
