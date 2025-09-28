@@ -1,59 +1,111 @@
+import requests
 import pandas as pd
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-# --- CONFIG ---
-VALID_MODES = ["rally", "drop"]
+# --- Twelve Data API ---
+API_KEY = st.secrets["TWELVE_DATA"]["9497fde228f249b88beeb24558f14f12"]
+BASE_URL = "https://api.twelvedata.com/time_series"
 
-def validate_rally(df, min_atr):
-    """Check if close is strictly increasing and ATR meets manual threshold."""
-    closes = df["close"].values
-    atrs = (df["high"] - df["low"]).abs()
-    return all(closes[i] < closes[i+1] for i in range(len(closes)-1)) and all(atrs >= min_atr)
-
-def validate_drop(df, min_atr):
-    """Check if close is strictly decreasing and ATR meets manual threshold."""
-    closes = df["close"].values
-    atrs = (df["high"] - df["low"]).abs()
-    return all(closes[i] > closes[i+1] for i in range(len(closes)-1)) and all(atrs >= min_atr)
-
-def validate_sets(df, mode="rally", min_atr=0.5):
-    """Validate all sets from 1 to 6 candles with manual ATR."""
-    results = {}
-    for n in range(1, 7):
-        subset = df.tail(n)
-        if len(subset) < n:
-            results[n] = False
-            continue
-        if mode == "rally":
-            results[n] = validate_rally(subset, min_atr)
-        elif mode == "drop":
-            results[n] = validate_drop(subset, min_atr)
-    return results
-
-# --- EXAMPLE USAGE ---
-if __name__ == "__main__":
-    # Simulated 4H OHLC data (replace with real fetch)
-    data = {
-        "datetime": [datetime.utcnow() - timedelta(hours=4*i) for i in range(20)],
-        "open": [100 + i for i in range(20)],
-        "high": [101 + i for i in range(20)],
-        "low": [99 + i for i in range(20)],
-        "close": [100 + i for i in range(20)],
+def fetch_ohlc(symbol, start, end, interval="4h"):
+    """Fetch 4H OHLC data from Twelve Data within UTC range."""
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "start_date": start.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_date": end.strftime("%Y-%m-%d %H:%M:%S"),
+        "apikey": API_KEY,
+        "timezone": "UTC",
+        "format": "JSON"
     }
-    df = pd.DataFrame(data).sort_values("datetime")
-
-    # Filter by custom UTC range
-    start = datetime.utcnow() - timedelta(days=2)
-    end = datetime.utcnow()
+    response = requests.get(BASE_URL, params=params).json()
+    values = response.get("values", [])
+    df = pd.DataFrame(values)
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-    filtered = df[(df["datetime"] >= start) & (df["datetime"] <= end)]
+    df = df.sort_values("datetime").reset_index(drop=True)
+    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+    return df
 
-    # Manual input
-    mode = "rally"  # or "drop"
-    manual_atr = 0.6  # entered by you
+# --- Candle Structure ---
+@dataclass
+class Candle:
+    name: int
+    open: float
+    high: float
+    low: float
+    close: float
 
-    result = validate_sets(filtered, mode=mode, min_atr=manual_atr)
+# --- Validation Rules ---
+rules = {
+    1: dict(valid=1, inside=0, atr_exp=0, scale=1.0),
+    2: dict(valid=2, inside=0, atr_exp=1, scale=0.8),
+    3: dict(valid=2, inside=1, atr_exp=1, scale=0.8),
+    4: dict(valid=3, inside=1, atr_exp=1, scale=0.75),
+    5: dict(valid=4, inside=1, atr_exp=2, scale=0.7),
+    6: dict(valid=5, inside=1, atr_exp=2, scale=0.7),
+}
 
-    print(f"\n🔍 Validation results for {mode.upper()} zone with manual ATR ≥ {manual_atr}:")
-    for k, v in result.items():
-        print(f"  - {k}-candle set: {'✅ Valid' if v else '❌ Invalid'}")
+def is_inside(prev, curr):
+    return curr.high < prev.high and curr.low > prev.low
+
+def validate_rally_drop(candles, atr_series, current_atr):
+    n = len(candles)
+    if n < 1 or n > 6:
+        return False, "Candle count out of range"
+
+    rule = rules[n]
+    valid = 0
+    inside_cnt = 0
+    atr_exp = 0
+    direction = None
+    min_body = current_atr * rule["scale"]
+
+    for i in range(n):
+        c = candles[i]
+        prev = candles[i-1] if i > 0 else None
+        body = abs(c.close - c.open)
+        full = c.high - c.low
+        atr = atr_series.get(c.name, 0)
+
+        cond = (body >= 0.6 * full) or (body >= min_body)
+        if cond and atr >= current_atr:
+            valid += 1
+            if body >= atr:
+                atr_exp += 1
+            dir_curr = c.close > c.open
+            if direction is None:
+                direction = dir_curr
+            elif direction != dir_curr:
+                return False, "Mixed directional bias"
+        else:
+            if prev and is_inside(prev, c):
+                inside_cnt += 1
+            else:
+                return False, "Non-valid non-inside candle"
+
+    ok = (
+        valid >= rule["valid"] and
+        inside_cnt <= rule["inside"] and
+        atr_exp >= rule["atr_exp"]
+    )
+    return ok, f"{n}-candle {'rally' if direction else 'drop'} validation: {ok}"
+
+# --- Execution Example ---
+if __name__ == "__main__":
+    symbol = "XAU/USD"
+    end = datetime.utcnow()
+    start = end - timedelta(days=3)
+    current_atr = 0.75  # manually entered
+
+    df = fetch_ohlc(symbol, start, end)
+    df["atr"] = (df["high"] - df["low"]).abs()
+    atr_series = df["atr"].to_dict()
+
+    # Convert to Candle objects
+    candles = [
+        Candle(name=i, open=row.open, high=row.high, low=row.low, close=row.close)
+        for i, row in df.tail(6).iterrows()
+    ]
+
+    result, message = validate_rally_drop(candles, atr_series, current_atr)
+    print(f"\n🔍 {message}")
