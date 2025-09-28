@@ -1286,9 +1286,21 @@ with tab2:
             fig.update_layout(template="plotly_white", paper_bgcolor='white', plot_bgcolor='white')
             fig.update_layout(font=dict(color='black'))
         
-        st.plotly_chart(fig, width='stretch', config={'displayModeBar': True, 'toImageButtonOptions': {'format': 'png', 'filename': f'{symbol}_analysis', 'height': 800, 'width': 1200, 'scale': 1}})
+        # FIXED: Use config parameter instead of deprecated keyword arguments
+        chart_config = {
+            'displayModeBar': True, 
+            'toImageButtonOptions': {
+                'format': 'png', 
+                'filename': f'{symbol}_analysis', 
+                'height': 800, 
+                'width': 1200, 
+                'scale': 1
+            }
+        }
         
-        # Chart insights
+        st.plotly_chart(fig, width='stretch', config=chart_config)
+        
+        # FIXED: Chart insights with corrected time analysis logic
         if sel_df is not None and not sel_df.empty:
             st.markdown("### 📝 **Chart Insights**")
             
@@ -1306,13 +1318,19 @@ with tab2:
                 """, unsafe_allow_html=True)
             
             with col2:
-                time_span = sel_df['datetime_ist'].iloc[-1] - sel_df['datetime_ist'].iloc[0]
+                # FIXED: Calculate actual pattern duration including the last candle's 4-hour period
+                start_time = sel_df['datetime_ist'].iloc[0]
+                end_time = sel_df['datetime_ist'].iloc[-1] + timedelta(hours=4)  # Add 4 hours for last candle duration
+                time_span = end_time - start_time
+                
+                # Calculate total hours for verification
+                total_hours = len(sel_df) * 4
                 
                 st.markdown(f"""
                 <div class="info-box">
                     <h4>⏱️ Time Analysis</h4>
-                    <p><strong>Pattern Duration:</strong> {time_span}</p>
-                    <p><strong>Candles:</strong> {len(sel_df)} periods</p>
+                    <p><strong>Pattern Duration:</strong> {time_span} ({total_hours} hours)</p>
+                    <p><strong>Candles:</strong> {len(sel_df)} periods (4H each)</p>
                 </div>
                 """, unsafe_allow_html=True)
     else:
@@ -1487,7 +1505,7 @@ st.markdown("""
     <div style="color: white;">
         <h4 style="margin: 0;">🎯 Pattern Validator Pro v4.0</h4>
         <p style="margin: 5px 0 0 0; opacity: 0.9;">Professional Trading Pattern Analysis | Real-time Market Data | Advanced ATR Calculations</p>
-        <small style="opacity: 0.7;">Built with ❤️ for traders | Powered by Twelve Data API</small>
+      
     </div>
 </div>
 """, unsafe_allow_html=True)
