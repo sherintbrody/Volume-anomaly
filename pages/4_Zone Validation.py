@@ -106,8 +106,8 @@ IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
 # --- OANDA API Configuration ---
-API_KEY = st.secrets["OANDA"]["API_KEY"]
-ACCOUNT_ID = st.secrets["OANDA"]["ACCOUNT_ID"]
+API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 # --- Helper function to check if candle is complete ---
