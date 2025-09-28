@@ -17,6 +17,7 @@ st.set_page_config(
 try:
     API_KEY = st.secrets["API_KEY"]
     ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+    BASE_URL = "https://api-fxpractice.oanda.com/v3"
 except Exception:
     st.error("🔐 API credentials not found in secrets. Please configure `API_KEY` and `ACCOUNT_ID`.")
     st.stop()
