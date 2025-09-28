@@ -259,10 +259,7 @@ def send_telegram_alert(message: str):
         r.raise_for_status()
     except Exception as e:
         st.error(f"Telegram send failed: {e}")
-    if st.button("Send Test Telegram Alert"):
-    send_telegram_alert("✅ Test message from Streamlit app")
-    st.success("Test alert sent — check your Telegram chat")
-
+    
         
 # ====== SECURE CONFIG ======
 # Check if we have secrets (Streamlit Cloud) or use fallback
@@ -1049,6 +1046,10 @@ def run_modern_dashboard():
                 alert_msg += f"📈 Volume: {spike['volume']:,} {spike['spike']}\n"
                 alert_msg += f"📊 Sentiment: {spike['sentiment']}\n\n"
             send_telegram_alert(alert_msg)
+        if st.button("Send Test Telegram Alert"):
+            send_telegram_alert("✅ Test message from Streamlit app")
+            st.success("Test alert sent — check your Telegram chat")
+
     
     # Save state
     save_alerted_candles(alerted_candles)
