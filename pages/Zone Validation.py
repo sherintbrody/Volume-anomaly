@@ -157,100 +157,168 @@ class Candle:
     low: float
     close: float
 
-# --- Pattern Rules (same as before) ---
+# --- NEW Pattern Rules Based on Your Specifications ---
 pattern_rules = {
     "base": {
-        1:  {"max_range_atr": 0.8},
-        2:  {"max_range_atr": 1.0, "max_close_span_atr": 0.25},
-        3:  {"max_range_atr": 1.1, "max_highlow_span_atr": 0.2},
-        4:  {"max_range_atr": 1.2, "max_close_span_atr": 0.3},
-        5:  {"max_range_atr": 1.3, "max_midpoint_span_atr": 0.4},
-        6:  {"max_range_atr": 1.4, "max_close_span_atr": 0.5},
-        "additional": {
-            "max_range_diff_atr": 0.2,
-            "no_new_extreme_atr": 0.2,
-            "midpoints_within_atr": 0.3
+        1: {
+            "max_range_atr": 1.0
+        },
+        2: {
+            "max_range_atr": 1.1,
+            "max_close_diff_atr": 0.25,
+            "no_new_extreme_atr": 0.2
+        },
+        3: {
+            "max_range_atr": 1.2,
+            "max_extremes_atr": 0.4,
+            "max_close_span_atr": 0.3
+        },
+        4: {
+            "max_range_atr": 1.3,
+            "max_extremes_atr": 0.5,
+            "max_net_move_atr": 0.2
+        },
+        5: {
+            "max_range_atr": 1.4,
+            "max_extremes_atr": 0.6,
+            "max_net_move_atr": 0.3
+        },
+        6: {
+            "max_range_atr": 1.5,
+            "max_extremes_atr": 0.7,
+            "max_net_move_atr": 0.3
         }
     },
     "rally": {
-        1:  {"min_range_atr": 1.2, "min_net_move_atr": 1.0, "final_close_pct": 0.75},
-        2:  {"min_range_atr": 1.0, "min_net_move_atr": 1.2},
-        3:  {"min_range_atr": 1.2, "min_net_move_atr": 1.5},
-        4:  {"min_range_atr": 1.2, "min_net_move_atr": 2.0},
-        5:  {"min_range_atr": 1.1, "min_net_move_atr": 2.5, "final_close_pct": 0.70},
-        6:  {"min_range_atr": 1.1, "min_net_move_atr": 3.0},
-        "additional": {
-            "no_inside_final": True,
-            "final_close_upper_pct": 0.30,
-            "max_retrace_atr": 0.2
+        1: {
+            "min_range_atr": 1.0,
+            "close_upper_pct": 0.30  # Close in upper 30%
+        },
+        2: {
+            "min_range_atr": 1.0,
+            "higher_high_low": True,
+            "min_net_move_atr": 0.8
+        },
+        3: {
+            "min_bars_range_atr": {"count": 2, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 1.2
+        },
+        4: {
+            "min_bars_range_atr": {"count": 3, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 1.5,
+            "no_bearish_engulfing": True
+        },
+        5: {
+            "min_bars_range_atr": {"count": 4, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 2.0,
+            "final_close_upper_pct": 0.40
+        },
+        6: {
+            "min_bars_range_atr": {"count": 5, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 2.5,
+            "monotonic_closes": True
         }
     },
     "drop": {
-        1:  {"min_range_atr": 1.2, "min_net_move_atr": 1.0, "final_close_pct": 0.25},
-        2:  {"min_range_atr": 1.0, "min_net_move_atr": 1.2},
-        3:  {"min_range_atr": 1.2, "min_net_move_atr": 1.5},
-        4:  {"min_range_atr": 1.2, "min_net_move_atr": 2.0},
-        5:  {"min_range_atr": 1.1, "min_net_move_atr": 2.5, "final_close_pct": 0.30},
-        6:  {"min_range_atr": 1.1, "min_net_move_atr": 3.0},
-        "additional": {
-            "no_inside_final": True,
-            "final_close_lower_pct": 0.30,
-            "max_retrace_atr": 0.2
+        1: {
+            "min_range_atr": 1.0,
+            "close_lower_pct": 0.30  # Close in lower 30%
+        },
+        2: {
+            "min_range_atr": 1.0,
+            "lower_high_low": True,
+            "min_net_move_atr": 0.8
+        },
+        3: {
+            "min_bars_range_atr": {"count": 2, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 1.2
+        },
+        4: {
+            "min_bars_range_atr": {"count": 3, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 1.5,
+            "no_bullish_engulfing": True
+        },
+        5: {
+            "min_bars_range_atr": {"count": 4, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 2.0,
+            "final_close_lower_pct": 0.40
+        },
+        6: {
+            "min_bars_range_atr": {"count": 5, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 2.5,
+            "monotonic_closes": True
         }
     }
 }
 
-# --- Optimized Helper Functions ---
-@st.cache_data
+# --- Helper Functions ---
 def range_atr(high, low, atr):
-    return (high - low) / atr
+    return (high - low) / atr if atr > 0 else 0
 
-@st.cache_data
 def net_move_atr(candles, atr):
-    return abs(candles[-1]["close"] - candles[0]["open"]) / atr
+    return abs(candles[-1]["close"] - candles[0]["open"]) / atr if atr > 0 else 0
 
 def close_span_atr(candles, atr):
     closes = [c["close"] for c in candles]
-    return (max(closes) - min(closes)) / atr
+    return (max(closes) - min(closes)) / atr if atr > 0 else 0
 
-def midpoint(candle):
-    return (candle["high"] + candle["low"]) / 2
-
-def midpoint_span_atr(candles, atr):
-    mps = [midpoint(c) for c in candles]
-    return (max(mps) - min(mps)) / atr
-
-def highlow_span_atr(candles, atr):
+def extremes_atr(candles, atr):
     highs = [c["high"] for c in candles]
-    lows  = [c["low"]  for c in candles]
-    return (max(highs) - min(lows)) / atr
+    lows = [c["low"] for c in candles]
+    return (max(highs) - min(lows)) / atr if atr > 0 else 0
 
-def no_new_extreme(candles, atr):
-    first = candles[0]
-    highs = [c["high"] for c in candles]
-    lows  = [c["low"]  for c in candles]
-    return (max(highs) - first["high"]) / atr <= pattern_rules["base"]["additional"]["no_new_extreme_atr"] \
-       and (first["low"] - min(lows)) / atr <= pattern_rules["base"]["additional"]["no_new_extreme_atr"]
-
-def is_inside_bar(bar, prev_bar):
-    return bar["high"] < prev_bar["high"] and bar["low"] > prev_bar["low"]
-
-def monotonic_closes(candles, direction="up", max_retrace_atr=0.2, atr=None):
-    closes = [c["close"] for c in candles]
-    if direction == "up":
-        if any(closes[i] <= closes[i-1] for i in range(1, len(closes))):
+def check_hh_hl_sequence(candles):
+    """Check for higher highs and higher lows sequence"""
+    for i in range(1, len(candles)):
+        if candles[i]["high"] <= candles[i-1]["high"] or candles[i]["low"] <= candles[i-1]["low"]:
             return False
-    else:
-        if any(closes[i] >= closes[i-1] for i in range(1, len(closes))):
-            return False
-    if atr:
-        extremes = (max(closes) - min(closes)) / atr
-        return extremes <= max_retrace_atr
     return True
 
-# --- Core Validation (with detailed results) ---
+def check_lh_ll_sequence(candles):
+    """Check for lower highs and lower lows sequence"""
+    for i in range(1, len(candles)):
+        if candles[i]["high"] >= candles[i-1]["high"] or candles[i]["low"] >= candles[i-1]["low"]:
+            return False
+    return True
+
+def check_monotonic_closes(candles, direction="up"):
+    """Check for monotonic rising or falling closes"""
+    closes = [c["close"] for c in candles]
+    if direction == "up":
+        return all(closes[i] > closes[i-1] for i in range(1, len(closes)))
+    else:
+        return all(closes[i] < closes[i-1] for i in range(1, len(closes)))
+
+def check_bearish_engulfing(candles):
+    """Check if any candle is bearish engulfing"""
+    for i in range(1, len(candles)):
+        if (candles[i]["open"] > candles[i-1]["close"] and 
+            candles[i]["close"] < candles[i-1]["open"]):
+            return True
+    return False
+
+def check_bullish_engulfing(candles):
+    """Check if any candle is bullish engulfing"""
+    for i in range(1, len(candles)):
+        if (candles[i]["open"] < candles[i-1]["close"] and 
+            candles[i]["close"] > candles[i-1]["open"]):
+            return True
+    return False
+
+# --- Core Validation with New Logic ---
 def validate_pattern_detailed(candles, atr, pattern):
     n = len(candles)
+    if n < 1 or n > 6:
+        return False, f"Invalid number of candles: {n}. Must be between 1 and 6.", {}
+    
     rules = pattern_rules[pattern].get(n)
     if not rules:
         return False, f"No rules for {pattern} with {n} candles", {}
@@ -258,63 +326,145 @@ def validate_pattern_detailed(candles, atr, pattern):
     results = {}
     
     if pattern == "base":
-        results['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
-        if "max_close_span_atr" in rules:
-            results['close_span'] = close_span_atr(candles, atr) <= rules["max_close_span_atr"]
-        if "max_highlow_span_atr" in rules:
-            results['highlow_span'] = highlow_span_atr(candles, atr) <= rules["max_highlow_span_atr"]
-        if "max_midpoint_span_atr" in rules:
-            results['midpoint_span'] = midpoint_span_atr(candles, atr) <= rules["max_midpoint_span_atr"]
-        add = pattern_rules["base"]["additional"]
-        results['range_diff'] = highlow_span_atr(candles, atr) - range_atr(candles[0]["high"], candles[0]["low"], atr) <= add["max_range_diff_atr"]
-        results['no_extreme'] = no_new_extreme(candles, atr)
-        results['midpoints_within'] = midpoint_span_atr(candles, atr) <= add["midpoints_within_atr"]
-    else:
-        results['range_check'] = all(range_atr(c["high"], c["low"], atr) >= rules["min_range_atr"] for c in candles)
-        results['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
-        highs = [c["high"] for c in candles]
-        lows  = [c["low"]  for c in candles]
-        if pattern == "rally":
-            results['structure'] = all(highs[i] > highs[i-1] and lows[i] > lows[i-1] for i in range(1, n))
-            if "final_close_pct" in rules:
-                rng = candles[-1]["high"] - candles[-1]["low"]
-                results['final_close'] = (candles[-1]["close"] - candles[-1]["low"]) / rng >= rules["final_close_pct"]
-        else:
-            results['structure'] = all(highs[i] < highs[i-1] and lows[i] < lows[i-1] for i in range(1, n))
-            if "final_close_pct" in rules:
-                rng = candles[-1]["high"] - candles[-1]["low"]
-                results['final_close'] = (candles[-1]["high"] - candles[-1]["close"]) / rng >= rules["final_close_pct"]
-        add = pattern_rules[pattern]["additional"]
-        if add.get("no_inside_final"):
-            results['no_inside'] = not is_inside_bar(candles[-1], candles[-2])
-        if add.get("final_close_upper_pct") and pattern=="rally":
-            rng = candles[-1]["high"] - candles[-1]["low"]
-            pct = (candles[-1]["high"] - candles[-1]["close"]) / rng
-            results['close_upper'] = pct <= add["final_close_upper_pct"]
-        if add.get("final_close_lower_pct") and pattern=="drop":
-            rng = candles[-1]["high"] - candles[-1]["low"]
-            pct = (candles[-1]["close"] - candles[-1]["low"]) / rng
-            results['close_lower'] = pct <= add["final_close_lower_pct"]
-        results['monotonic'] = monotonic_closes(candles,
-                                       direction="up" if pattern=="rally" else "down",
-                                       max_retrace_atr=add["max_retrace_atr"],
-                                       atr=atr)
+        # Base pattern validation
+        if "max_range_atr" in rules:
+            results['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
+        
+        if n == 2:
+            # Closes within ±0.25 ATR
+            close_diff = abs(candles[1]["close"] - candles[0]["close"]) / atr
+            results['close_diff'] = close_diff <= rules["max_close_diff_atr"]
+            
+            # No new high/low beyond first bar ±0.2 ATR
+            new_high = (candles[1]["high"] - candles[0]["high"]) / atr
+            new_low = (candles[0]["low"] - candles[1]["low"]) / atr
+            results['no_new_extreme'] = (new_high <= rules["no_new_extreme_atr"] and 
+                                        new_low <= rules["no_new_extreme_atr"])
+        
+        if n >= 3:
+            if "max_extremes_atr" in rules:
+                results['extremes'] = extremes_atr(candles, atr) <= rules["max_extremes_atr"]
+            if "max_close_span_atr" in rules:
+                results['close_span'] = close_span_atr(candles, atr) <= rules["max_close_span_atr"]
+            if "max_net_move_atr" in rules:
+                results['net_move'] = net_move_atr(candles, atr) <= rules["max_net_move_atr"]
+    
+    elif pattern == "rally":
+        # Rally pattern validation
+        if n == 1:
+            # Range check
+            results['range_check'] = range_atr(candles[0]["high"], candles[0]["low"], atr) >= rules["min_range_atr"]
+            # Close in upper 30%
+            candle_range = candles[0]["high"] - candles[0]["low"]
+            if candle_range > 0:
+                close_position = (candles[0]["close"] - candles[0]["low"]) / candle_range
+                results['close_position'] = close_position >= (1 - rules["close_upper_pct"])
+        
+        elif n == 2:
+            # Each range >= 1.0 ATR
+            results['range_check'] = all(range_atr(c["high"], c["low"], atr) >= rules["min_range_atr"] for c in candles)
+            # Higher high & higher low
+            results['hh_hl'] = (candles[1]["high"] > candles[0]["high"] and 
+                               candles[1]["low"] > candles[0]["low"])
+            # Net move
+            results['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
+        
+        else:  # n >= 3
+            # Minimum bars with range >= threshold
+            if "min_bars_range_atr" in rules:
+                bars_meeting = sum(1 for c in candles if range_atr(c["high"], c["low"], atr) >= rules["min_bars_range_atr"]["min"])
+                results['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
+            
+            # HH & HL sequence
+            if "hh_hl_sequence" in rules:
+                results['hh_hl_sequence'] = check_hh_hl_sequence(candles)
+            
+            # Net move
+            results['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
+            
+            # No bearish engulfing (n=4)
+            if "no_bearish_engulfing" in rules:
+                results['no_bearish_engulfing'] = not check_bearish_engulfing(candles)
+            
+            # Final close position (n=5)
+            if "final_close_upper_pct" in rules:
+                final_range = candles[-1]["high"] - candles[-1]["low"]
+                if final_range > 0:
+                    close_position = (candles[-1]["close"] - candles[-1]["low"]) / final_range
+                    results['final_close_position'] = close_position >= (1 - rules["final_close_upper_pct"])
+            
+            # Monotonic closes (n=6)
+            if "monotonic_closes" in rules:
+                results['monotonic_closes'] = check_monotonic_closes(candles, direction="up")
+    
+    elif pattern == "drop":
+        # Drop pattern validation
+        if n == 1:
+            # Range check
+            results['range_check'] = range_atr(candles[0]["high"], candles[0]["low"], atr) >= rules["min_range_atr"]
+            # Close in lower 30%
+            candle_range = candles[0]["high"] - candles[0]["low"]
+            if candle_range > 0:
+                close_position = (candles[0]["close"] - candles[0]["low"]) / candle_range
+                results['close_position'] = close_position <= rules["close_lower_pct"]
+        
+        elif n == 2:
+            # Each range >= 1.0 ATR
+            results['range_check'] = all(range_atr(c["high"], c["low"], atr) >= rules["min_range_atr"] for c in candles)
+            # Lower high & lower low
+            results['lh_ll'] = (candles[1]["high"] < candles[0]["high"] and 
+                               candles[1]["low"] < candles[0]["low"])
+            # Net move (for drop: first open - last close)
+            net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr
+            results['net_move'] = net_move >= rules["min_net_move_atr"]
+        
+        else:  # n >= 3
+            # Minimum bars with range >= threshold
+            if "min_bars_range_atr" in rules:
+                bars_meeting = sum(1 for c in candles if range_atr(c["high"], c["low"], atr) >= rules["min_bars_range_atr"]["min"])
+                results['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
+            
+            # LH & LL sequence
+            if "lh_ll_sequence" in rules:
+                results['lh_ll_sequence'] = check_lh_ll_sequence(candles)
+            
+            # Net move (for drop: first open - last close)
+            net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr
+            results['net_move'] = net_move >= rules["min_net_move_atr"]
+            
+            # No bullish engulfing (n=4)
+            if "no_bullish_engulfing" in rules:
+                results['no_bullish_engulfing'] = not check_bullish_engulfing(candles)
+            
+            # Final close position (n=5)
+            if "final_close_lower_pct" in rules:
+                final_range = candles[-1]["high"] - candles[-1]["low"]
+                if final_range > 0:
+                    close_position = (candles[-1]["close"] - candles[-1]["low"]) / final_range
+                    results['final_close_position'] = close_position <= rules["final_close_lower_pct"]
+            
+            # Monotonic closes (n=6)
+            if "monotonic_closes" in rules:
+                results['monotonic_closes'] = check_monotonic_closes(candles, direction="down")
     
     overall = all(results.values())
-    return overall, "passed" if overall else "failed", results
+    return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
 
-# --- Enhanced Plot function with improved hover ---
+# --- Enhanced Plot function ---
 def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
-    """Create combined chart with price and ATR with enhanced hover data"""
+    """Create combined chart with price and ATR"""
+    # Show last 7 days of data for ATR graph
+    last_7_days = df.tail(42)  # Approximately 7 days of 4H candles
+    
     rows = 2 if show_atr else 1
-    row_heights = [0.7, 0.3] if show_atr else [1.0]
+    row_heights = [0.65, 0.35] if show_atr else [1.0]
     
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.03,
+        vertical_spacing=0.02,
         row_heights=row_heights,
-        subplot_titles=('Price Action', 'ATR (21 Period)') if show_atr else ('Price Action',)
+        subplot_titles=('Pattern Analysis Dashboard', 'ATR (21 Period) - Last 7 Days') if show_atr else ('Pattern Analysis Dashboard',)
     )
     
     # Price chart
@@ -340,7 +490,7 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
                 marker=dict(symbol='x', size=12, color='red'),
                 text='Forming',
                 textposition="top center",
-                name='Incomplete Candle',
+                name='Incomplete',
                 showlegend=True
             ), row=1, col=1)
     
@@ -355,71 +505,46 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             showlegend=True
         ), row=1, col=1)
     
-    # ATR chart with enhanced hover
-    if show_atr and 'atr' in df.columns:
-        # Prepare hover text
-        hover_text = []
-        for idx, row in df.iterrows():
-            time_str = row['datetime_ist'].strftime('%Y-%m-%d %H:%M')
-            atr_val = row['atr']
-            if pd.notna(atr_val):
-                text = f"Time: {time_str}<br>ATR: {atr_val:.4f}"
-                if 'atr_projected' in df.columns and row['atr_projected']:
-                    text += "<br><b>(Projected from complete candles)</b>"
-                hover_text.append(text)
-            else:
-                hover_text.append(f"Time: {time_str}<br>ATR: N/A")
-        
+    # ATR chart - Last 7 days only
+    if show_atr and 'atr' in last_7_days.columns:
         # Main ATR line
         fig.add_trace(go.Scatter(
-            x=df['datetime_ist'],
-            y=df['atr'],
-            mode='lines+markers',
+            x=last_7_days['datetime_ist'],
+            y=last_7_days['atr'],
+            mode='lines',
             name='ATR',
             line=dict(color='#2196f3', width=2),
-            marker=dict(size=4),
-            hovertext=hover_text,
-            hoverinfo='text',
             showlegend=False
         ), row=2, col=1)
         
         # Mark projected ATR points
-        if 'atr_projected' in df.columns:
-            projected_df = df[df['atr_projected']]
+        if 'atr_projected' in last_7_days.columns:
+            projected_df = last_7_days[last_7_days['atr_projected']]
             if not projected_df.empty:
                 fig.add_trace(go.Scatter(
                     x=projected_df['datetime_ist'],
                     y=projected_df['atr'],
                     mode='markers',
-                    marker=dict(symbol='circle-open', size=10, color='orange'),
-                    name='Projected ATR',
-                    hovertext=[f"ATR: {val:.4f} (Projected)" for val in projected_df['atr']],
-                    hoverinfo='text',
+                    marker=dict(symbol='circle-open', size=8, color='orange'),
+                    name='Projected',
                     showlegend=True
                 ), row=2, col=1)
         
         # Add current ATR line
-        if not df['atr'].isna().all():
-            # Get the last valid ATR (excluding projected if incomplete)
-            if 'is_complete' in df.columns and not df.iloc[-1]['is_complete']:
-                # Use second-to-last ATR if last candle is incomplete
-                current_atr = df['atr'].iloc[-2] if len(df) > 1 else df['atr'].iloc[-1]
-            else:
-                current_atr = df['atr'].iloc[-1]
-            
+        if not last_7_days['atr'].isna().all():
+            current_atr = last_7_days['atr'].iloc[-1] if not last_7_days['atr_projected'].iloc[-1] else last_7_days['atr'].iloc[-2]
             fig.add_hline(
                 y=current_atr, 
                 line_dash="dash", 
                 line_color="#ff5722",
-                annotation_text=f"Current ATR: {current_atr:.4f}",
+                annotation_text=f"Current: {current_atr:.4f}",
                 annotation_position="right",
                 row=2, col=1
             )
     
     # Update layout
     fig.update_layout(
-        title=dict(text="Pattern Analysis Dashboard", font=dict(size=20)),
-        height=700,
+        height=650,
         xaxis_rangeslider_visible=False,
         template="plotly_white",
         showlegend=True,
@@ -429,30 +554,34 @@ def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
             xanchor="left",
             x=0.01
         ),
-        hovermode='x unified'
+        hovermode='x unified',
+        margin=dict(l=50, r=50, t=80, b=50)
     )
     
     fig.update_xaxes(title_text="Time (IST)", row=rows, col=1)
     fig.update_yaxes(title_text="Price", row=1, col=1)
     if show_atr:
-        fig.update_yaxes(title_text="ATR Value", row=2, col=1)
+        fig.update_yaxes(title_text="ATR", row=2, col=1)
     
     return fig
 
 # --- Result Display Component ---
 def display_validation_results(is_valid, message, pattern, details=None):
     """Display validation results with details"""
+    pattern_emoji = {"rally": "📈", "drop": "📉", "base": "🔄"}
+    pattern_name = {"rally": "Rally (Bullish Impulse)", "drop": "Drop (Bearish Impulse)", "base": "Base (Consolidation Zone)"}
+    
     if is_valid:
         st.markdown(f"""
         <div class="success-box">
-            <h3>✅ {pattern.title()} Pattern: VALID</h3>
+            <h3>{pattern_emoji[pattern]} {pattern_name[pattern]}: VALID ✅</h3>
             <p>{message}</p>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
         <div class="error-box">
-            <h3>❌ {pattern.title()} Pattern: INVALID</h3>
+            <h3>{pattern_emoji[pattern]} {pattern_name[pattern]}: INVALID ❌</h3>
             <p>{message}</p>
         </div>
         """, unsafe_allow_html=True)
@@ -523,24 +652,6 @@ with st.sidebar:
     use_auto_atr = st.checkbox("Auto-detect ATR", value=True)
     if not use_auto_atr:
         current_atr = st.number_input("Manual ATR Value", min_value=0.01, value=0.75, step=0.01)
-    
-    st.markdown("""
-    <div class="metric-card">
-        <small><b>ATR Calculation Note:</b></small><br>
-        <small>• Uses 21-period average<br>
-        • Excludes forming candles<br>
-        • Based on True Range formula</small>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Display current time
-    current_time_ist = datetime.now(IST)
-    st.markdown(f"""
-    <div class="metric-card">
-        <small>Current Time (IST)</small><br>
-        <strong>{current_time_ist.strftime('%Y-%m-%d %H:%M:%S')}</strong>
-    </div>
-    """, unsafe_allow_html=True)
 
 # Main content
 df = None
@@ -554,7 +665,7 @@ with tab1:
         st.markdown("### 🔄 Automatic Analysis")
         col1, col2 = st.columns([3, 1])
         with col1:
-            n_candles = st.slider("Number of candles to analyze", 1, 6, 3, help="Select the last N candles")
+            n_candles = st.slider("Number of candles to analyze", 1, 6, 3, help="Select the last N candles (max 6)")
         with col2:
             analyze_btn = st.button("🚀 Analyze", type="primary", use_container_width=True)
         
@@ -639,7 +750,7 @@ with tab1:
                 # Select candles in range (only complete ones)
                 sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
                 
-                if not sel.empty:
+                if not sel.empty and len(sel) <= 6:
                     candles = [
                         dict(open=row.open, high=row.high, low=row.low, close=row.close)
                         for _, row in sel.iterrows()
@@ -651,6 +762,8 @@ with tab1:
                     ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
                     display_validation_results(ok, message, pattern, details)
                     display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
+                elif len(sel) > 6:
+                    st.warning(f"Selected range contains {len(sel)} candles. Maximum allowed is 6 candles.")
                 else:
                     st.warning("No complete candles found in selected range")
 
@@ -693,7 +806,8 @@ with tab1:
             indices = st.multiselect(
                 "Choose candles by index",
                 options=df_display.index.tolist(),
-                format_func=lambda x: f"{x}: {df_display.loc[x,'datetime_ist']} | O:{df_display.loc[x,'open']:.2f} H:{df_display.loc[x,'high']:.2f} L:{df_display.loc[x,'low']:.2f} C:{df_display.loc[x,'close']:.2f}"
+                format_func=lambda x: f"{x}: {df_display.loc[x,'datetime_ist']} | O:{df_display.loc[x,'open']:.2f} H:{df_display.loc[x,'high']:.2f} L:{df_display.loc[x,'low']:.2f} C:{df_display.loc[x,'close']:.2f}",
+                max_selections=6
             )
             
             if indices and st.button("✅ Validate Selected", type="primary"):
@@ -725,18 +839,6 @@ with tab2:
         
         fig = plot_combined_chart(df, sel_df, show_atr=show_atr)
         st.plotly_chart(fig, use_container_width=True)
-        
-        # ATR info box
-        if show_atr and 'atr' in df.columns:
-            st.markdown("""
-            <div class="metric-card">
-                <b>📊 ATR Chart Guide:</b><br>
-                • Hover over the line to see exact ATR values<br>
-                • Orange circles indicate projected ATR (from incomplete candles)<br>
-                • Red dashed line shows current ATR level<br>
-                • X marks indicate forming/incomplete candles
-            </div>
-            """, unsafe_allow_html=True)
     else:
         st.info("📊 Load data to view chart")
 
@@ -768,13 +870,7 @@ with tab3:
             display_df['is_complete'] = display_df['is_complete'].map({True: '✅ Complete', False: '🔄 Forming'})
         
         display_df = display_df[cols_to_show]
-        col_names = ['Time (IST)','Open','High','Low','Close']
-        if 'atr' in cols_to_show:
-            col_names.append('ATR')
-        if 'is_complete' in cols_to_show:
-            col_names.append('Status')
-        display_df.columns = col_names
-        display_df[['Open','High','Low','Close']] = display_df[['Open','High','Low','Close']].round(2)
+        display_df.columns = [col.replace('_', ' ').title() for col in cols_to_show]
         
         st.dataframe(
             display_df,
@@ -799,7 +895,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: #666;'>
-        <small>Pattern Validator Pro v2.1 | ATR excludes incomplete candles | Enhanced hover tooltips</small>
+        <small>Pattern Validator Pro v3.0 | Exact Pattern Rules Implementation</small>
     </div>
     """,
     unsafe_allow_html=True
