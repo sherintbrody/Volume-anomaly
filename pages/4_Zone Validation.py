@@ -105,7 +105,7 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
- --- Twelve Data API ---
+ #--- Twelve Data API ---
 API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
 
 # --- Helper function to check if candle is complete ---
