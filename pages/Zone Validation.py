@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # --- Twelve Data API ---
 API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
@@ -50,6 +50,7 @@ def is_inside(prev, curr):
     return curr.high < prev.high and curr.low > prev.low
 
 def validate_rally_drop(candles, atr_series, current_atr):
+    """Validate rally/drop zone using scaled ATR logic and inside candle rules."""
     n = len(candles)
     if n < 1 or n > 6:
         return False, "Candle count out of range"
@@ -94,7 +95,7 @@ def validate_rally_drop(candles, atr_series, current_atr):
 # --- Execution Example ---
 if __name__ == "__main__":
     symbol = "XAU/USD"
-    end = datetime.utcnow()
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=3)
     current_atr = 0.75  # manually entered
 
@@ -109,4 +110,4 @@ if __name__ == "__main__":
     ]
 
     result, message = validate_rally_drop(candles, atr_series, current_atr)
-    print(f"\n🔍 {message}")
+    st.write(f"🔍 {message}")
