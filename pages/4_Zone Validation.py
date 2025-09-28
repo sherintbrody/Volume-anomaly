@@ -105,8 +105,8 @@ st.markdown("""
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-# --- Twelve Data API ---
-API_KEY = st.secrets["TWELVE_DATA"]["API_KEY"]
+# --- OANDA API ---
+API_KEY = st.secrets["OANDA_ALT"]["API_KEY"]
 BASE_URL = "https://api.twelvedata.com/time_series"
 
 # --- Helper function to check if candle is complete ---
