@@ -203,100 +203,100 @@ class Candle:
 pattern_rules = {
     "base": {
         1: {
-            "max_range_atr": 1.0
+            "max_range_atr": 1.2
         },
         2: {
-            "max_range_atr": 1.1,
-            "max_close_diff_atr": 0.25,
-            "no_new_extreme_atr": 0.2
+            "max_range_atr": 1.3,
+            "max_close_diff_atr": 0.5,   # was 0.25
+            "no_new_extreme_atr": 0.4    # was 0.2
         },
         3: {
-            "max_range_atr": 1.2,
-            "max_extremes_atr": 0.4,
-            "max_close_span_atr": 0.3
+            "max_range_atr": 1.4,
+            "max_extremes_atr": 0.6,     # was 0.4
+            "max_close_span_atr": 0.5    # was 0.3
         },
         4: {
-            "max_range_atr": 1.3,
-            "max_extremes_atr": 0.5,
-            "max_net_move_atr": 0.2
+            "max_range_atr": 1.5,
+            "max_extremes_atr": 0.8,     # was 0.5
+            "max_net_move_atr": 0.4      # was 0.2
         },
         5: {
-            "max_range_atr": 1.4,
-            "max_extremes_atr": 0.6,
-            "max_net_move_atr": 0.3
+            "max_range_atr": 1.6,
+            "max_extremes_atr": 1.0,     # was 0.6
+            "max_net_move_atr": 0.5      # was 0.3
         },
         6: {
-            "max_range_atr": 1.5,
-            "max_extremes_atr": 0.7,
-            "max_net_move_atr": 0.3
+            "max_range_atr": 1.7,
+            "max_extremes_atr": 1.2,     # was 0.7
+            "max_net_move_atr": 0.5      # was 0.3
         }
     },
     "rally": {
         1: {
-            "min_range_atr": 1.0,
-            "close_upper_pct": 0.30  # Close in upper 30%
+            "min_range_atr": 0.8,        # was 1.0
+            "close_upper_pct": 0.50      # was 0.30
         },
         2: {
-            "min_range_atr": 1.0,
-            "higher_high_low": True,
-            "min_net_move_atr": 0.8
+            "min_range_atr": 0.8,
+            "higher_high_low": "majority",  # relaxed from strict True
+            "min_net_move_atr": 0.6      # was 0.8
         },
         3: {
-            "min_bars_range_atr": {"count": 2, "min": 1.0},
-            "hh_hl_sequence": True,
-            "min_net_move_atr": 1.2
+            "min_bars_range_atr": {"count": 2, "min": 0.8},
+            "hh_hl_sequence": "majority",
+            "min_net_move_atr": 1.0      # was 1.2
         },
         4: {
-            "min_bars_range_atr": {"count": 3, "min": 1.0},
-            "hh_hl_sequence": True,
-            "min_net_move_atr": 1.5,
+            "min_bars_range_atr": {"count": 3, "min": 0.8},
+            "hh_hl_sequence": "majority",
+            "min_net_move_atr": 1.2,     # was 1.5
             "no_bearish_engulfing": True
         },
         5: {
-            "min_bars_range_atr": {"count": 4, "min": 1.0},
-            "hh_hl_sequence": True,
-            "min_net_move_atr": 2.0,
-            "final_close_upper_pct": 0.40
+            "min_bars_range_atr": {"count": 3, "min": 0.8},  # was 4 of 5
+            "hh_hl_sequence": "majority",
+            "min_net_move_atr": 1.5,     # was 2.0
+            "final_close_upper_pct": 0.50  # was 0.40
         },
         6: {
-            "min_bars_range_atr": {"count": 5, "min": 1.0},
-            "hh_hl_sequence": True,
-            "min_net_move_atr": 2.5,
-            "monotonic_closes": True
+            "min_bars_range_atr": {"count": 4, "min": 0.8},  # was 5 of 6
+            "hh_hl_sequence": "majority",
+            "min_net_move_atr": 2.0,     # was 2.5
+            "monotonic_closes": False    # relaxed monotonic requirement
         }
     },
     "drop": {
         1: {
-            "min_range_atr": 1.0,
-            "close_lower_pct": 0.30  # Close in lower 30%
+            "min_range_atr": 0.8,
+            "close_lower_pct": 0.50      # was 0.30
         },
         2: {
-            "min_range_atr": 1.0,
-            "lower_high_low": True,
-            "min_net_move_atr": 0.8
+            "min_range_atr": 0.8,
+            "lower_high_low": "majority",
+            "min_net_move_atr": 0.6
         },
         3: {
-            "min_bars_range_atr": {"count": 2, "min": 1.0},
-            "lh_ll_sequence": True,
-            "min_net_move_atr": 1.2
+            "min_bars_range_atr": {"count": 2, "min": 0.8},
+            "lh_ll_sequence": "majority",
+            "min_net_move_atr": 1.0
         },
         4: {
-            "min_bars_range_atr": {"count": 3, "min": 1.0},
-            "lh_ll_sequence": True,
-            "min_net_move_atr": 1.5,
+            "min_bars_range_atr": {"count": 3, "min": 0.8},
+            "lh_ll_sequence": "majority",
+            "min_net_move_atr": 1.2,
             "no_bullish_engulfing": True
         },
         5: {
-            "min_bars_range_atr": {"count": 4, "min": 1.0},
-            "lh_ll_sequence": True,
-            "min_net_move_atr": 2.0,
-            "final_close_lower_pct": 0.40
+            "min_bars_range_atr": {"count": 3, "min": 0.8},
+            "lh_ll_sequence": "majority",
+            "min_net_move_atr": 1.5,
+            "final_close_lower_pct": 0.50
         },
         6: {
-            "min_bars_range_atr": {"count": 5, "min": 1.0},
-            "lh_ll_sequence": True,
-            "min_net_move_atr": 2.5,
-            "monotonic_closes": True
+            "min_bars_range_atr": {"count": 4, "min": 0.8},
+            "lh_ll_sequence": "majority",
+            "min_net_move_atr": 2.0,
+            "monotonic_closes": False
         }
     }
 }
