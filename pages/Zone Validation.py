@@ -1505,7 +1505,6 @@ st.markdown("""
     <div style="color: white;">
         <h4 style="margin: 0;">🎯 Pattern Validator Pro v4.0</h4>
         <p style="margin: 5px 0 0 0; opacity: 0.9;">Professional Trading Pattern Analysis | Real-time Market Data | Advanced ATR Calculations</p>
-      
     </div>
 </div>
 """, unsafe_allow_html=True)
