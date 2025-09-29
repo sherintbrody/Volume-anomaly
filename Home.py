@@ -268,8 +268,8 @@ try:
     API_KEY = st.secrets["API_KEY"]
     ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
     BASE_URL = "https://api-fxpractice.oanda.com/v3"
-    TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-    TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+    TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+    TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
 except:
     # Fallback for local development - REMOVE THESE IN PRODUCTION
     API_KEY = os.environ.get("API_KEY", "")
