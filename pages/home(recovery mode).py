@@ -67,8 +67,8 @@ st.markdown(BADGE_CSS, unsafe_allow_html=True)
 
 # ====== CONFIG ======
 # IMPORTANT: Move these to environment variables or .streamlit/secrets.toml
-API_KEY = "bb87dd2bf7964ed9d84b5a8d7cd6b775-06058183a6307a0550c35b109c8cd94d"
-ACCOUNT_ID = "101-004-37091392-001"
+API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 INSTRUMENTS = {
