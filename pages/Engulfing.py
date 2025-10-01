@@ -7,9 +7,9 @@ import pytz
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-OANDA_API_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
-OANDA_API_KEY = "YOUR_OANDA_API_KEY"   # <-- replace with your key
-
+API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+BASE_URL = "https://api-fxpractice.oanda.com/v3"
 # -----------------------------
 # HELPERS
 # -----------------------------
