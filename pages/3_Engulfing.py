@@ -32,6 +32,7 @@ st.markdown("""
 
 OANDA_API_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
 API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 
 # -----------------------------
 # CORE FUNCTIONS
