@@ -95,7 +95,7 @@ if st.sidebar.button("🚀 Fetch Candles"):
             df["Body_x_ATR_str"] = df["Body_x_ATR"].astype(str) + "x ATR"
             
             st.subheader(f"{instrument} ({timeframe}) Candle Body Multiples")
-            st.dataframe(df[["time", "Open", "Close", "Body_x_ATR_str", "Signal"]], use_container_width=True)
+            st.dataframe(df[["time", "Open", "Close", "Body_x_ATR_str", "Signal"]], width='stretch')
             
             st.subheader("📊 Body ÷ ATR Chart")
             st.bar_chart(df.set_index("time")["Body_x_ATR"])
