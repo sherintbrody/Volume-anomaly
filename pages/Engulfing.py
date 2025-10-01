@@ -25,7 +25,7 @@ def ist_to_utc_iso(dt_obj):
 # -----------------------------
 def fetch_candles_range(instrument, granularity, date_from, date_to):
     url = OANDA_API_URL.format(instrument)
-    headers = {"Authorization": f"Bearer " + OANDA_API_KEY}
+    headers = {"Authorization": f"Bearer {API_KEY}"}
     params = {
         "granularity": granularity,
         "price": "M",
@@ -53,7 +53,9 @@ def fetch_candles_range(instrument, granularity, date_from, date_to):
 def body_as_atr_multiple(df, atr_value):
     body = (df['Close'] - df['Open']).abs()
     multiples = body / atr_value
-    return multiples.round(2)
+    signal = pd.cut(multiples, bins=[0, 0.7, 1.3, float('inf')],
+                    labels=["Weak", "Neutral", "Strong"])
+    return multiples.round(2), signal
 
 # -----------------------------
 # STREAMLIT DASHBOARD
@@ -89,11 +91,13 @@ if st.sidebar.button("🚀 Fetch Candles"):
         if df.empty:
             st.warning("No candles returned for this range.")
         else:
-            df["Body_x_ATR"] = body_as_atr_multiple(df, atr_val)
+            df["Body_x_ATR"], df["Signal"] = body_as_atr_multiple(df, atr_val)
             df["Body_x_ATR_str"] = df["Body_x_ATR"].astype(str) + "x ATR"
             
             st.subheader(f"{instrument} ({timeframe}) Candle Body Multiples")
-            st.dataframe(df[["time", "Open", "Close", "Body_x_ATR_str"]], use_container_width=True)
+            st.dataframe(df[["time", "Open", "Close", "Body_x_ATR_str", "Signal"]], use_container_width=True)
             
             st.subheader("📊 Body ÷ ATR Chart")
             st.bar_chart(df.set_index("time")["Body_x_ATR"])
+            
+            st.download_button("📥 Export to CSV", df.to_csv(index=False), file_name="atr_body_multiples.csv")
