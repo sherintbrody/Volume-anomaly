@@ -1,484 +1,521 @@
 import streamlit as st
-from typing import Optional, Dict, List
+import requests
 import pandas as pd
+from datetime import datetime
+import pytz
 
-# ---------- Page + Style ----------
-st.set_page_config(page_title="COT Spec Index Analyzer + Signal Score", page_icon="📊", layout="wide")
-
-BADGE_CSS = """
-<style>
-.badge { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px;
-         margin-right:6px; border:1px solid rgba(148,163,184,.35); color:#334155; background:rgba(148,163,184,.12);}
-.badge.ok { color:#065f46; background:rgba(16,185,129,.12); border-color:rgba(16,185,129,.35);}
-.badge.warn { color:#92400e; background:rgba(245,158,11,.12); border-color:rgba(245,158,11,.35);}
-.badge.err { color:#991b1b; background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.35);}
-.small { font-size:12px; color:#475569; }
-</style>
-"""
-st.markdown(BADGE_CSS, unsafe_allow_html=True)
-
-st.title("COT Spec Index Analyzer + Signal Score")
-st.caption("Manual inputs (no auto‑import). Use MarketBulls → Legacy → Large Speculators → Percent of OI and the 6M/36M gauges.")
-
-# ---------- Playbook toggle ----------
-def render_playbook():
-    st.subheader("Step‑down trade playbook")
-    st.markdown("**1) Weekly bias (COT first, specs only)**")
-    st.markdown("""
-- Read COT Index 6M and 36M (relative position in last 26/156 weeks)
-  - Longs allowed: 6M > 60 AND 36M > 50
-  - Shorts allowed: 6M < 40 AND 36M < 50
-  - Neutral: otherwise
-- Extremes filter: if 6M or 36M > 85 (crowded long) or < 15 (crowded short) → trend mature; prefer pullbacks and reduce size
-- Momentum upgrade (optional): WoW Δ COT 6M ≥ +5 (longs) or ≤ −5 (shorts), or Open Interest WoW in the bias direction
-    """)
-    st.markdown("**2) Location (where to do business)**")
-    st.markdown("""
-- Mark Daily and H4 Supply/Demand zones
-  - Freshness: 1–2 retests max
-  - Reaction quality: base → strong departure; for absorption, wick ≥ 40% of range and body ≤ 40%
-- Add confluence:
-  - Fibonacci: pullback longs at 38.2–61.8% of last impulse; shorts mirrored. Extensions 127/161.8% are target magnets
-  - Pivots: Daily/Weekly Pivot, R1/R2/R3/S1/S2/S3
-- Rule of thumb: Prefer trades where a D/H4 zone overlaps a pivot band (or a Fib cluster) within 0.15–0.20 ATR(14)
-    """)
-    st.markdown("**3) Intraday context (pivots tell you the day type)**")
-    st.markdown("""
-- Above DP and holding → trend‑day up bias; below DP → trend‑day down bias
-- Rotation day: DP magnet, fade toward S1/R1 with confirmation
-- Best confluence: HTF zone ± pivot band ± Fib level
-    """)
-    st.markdown("**4) Confirmation (only then pull the trigger)**")
-    st.markdown("""
-- Volume spike (session‑aware)
-  - Compute per‑bucket percentile (e.g., 15m 95th percentile over last ~21 trading days). Spike if current volume ≥ P95 for that 15m slot
-  - Higher quality: last four 15m bars sum ≥ hourly P90 (dual‑TF confirmation)
-- Bollinger Bands (20 SMA, 2σ)
-  - Reversal/absorption: breach outside band then close back inside, ideally at HTF zone/pivot
-  - Breakout/continuation: full‑body close beyond band with rising Bandwidth (vol expansion)
-    """)
-    st.markdown("**5) Entry tactics (pick 1)**")
-    st.markdown("""
-- Reversal at zone (absorption)
-  - Long: at demand zone + pivot/Fib, rejection candle (long lower wick), volume ≥ P95, close back inside lower band
-  - Short: mirror at supply zone
-- Breakout‑retest (continuation)
-  - Close through level (zone edge/pivot), volume ≥ P95, fast retest holds (lower wick for longs, upper wick for shorts), then go
-    """)
-    st.markdown("**6) Risk, stop, targets**")
-    st.markdown("""
-- Initial stop: beyond the zone edge or 1.0× ATR(14) beyond trigger low/high (whichever is farther but logical)
-- Position size: 0.5–1.0R at extremes; 1.0–1.25R when not extreme with momentum upgrade
-- Targets:
-  - T1 = nearest opposing pivot (DP/R1/S1) or prior swing → take 50% off
-  - T2 = next pivot/HTF level or Fib 127/161.8% extension
-  - If trend‑day (holding DP): let a runner trail by last swing lows (longs) or 1× ATR(14); otherwise trail by 20 SMA (Bollinger midline)
-    """)
-    st.markdown("**7) Management rules**")
-    st.markdown("""
-- Time‑stop: if no progress after 3–5 bars on your execution timeframe, reduce or exit
-- Break‑even: after +1R, move stop to entry
-- No chase: never enter when price is >1–1.5 ATR below/above the 20 SMA or outside bands—wait for a pullback or a retest
-    """)
-    st.markdown("**8) Two quick flows to copy**")
-    st.markdown("""
-- Bullish bias (COT 6M>60, 36M>50)
-  1) Mark D/H4 demand; draw Fib of last daily upswing; add pivots  
-  2) Wait for price into zone ± DP/S1; require either:  
-     • Absorption: long lower wick + close back inside lower band + 15m vol ≥ P95  
-     • Breakout‑retest: reclaim DP with high vol; retest DP holds (lower wick)  
-  3) Long; stop under zone; T1 = DP/R1; T2 = R2 or Fib 127/161.8; trail by swing/ATR
-- Bearish bias (COT 6M<40, 36M<50)
-  1) Mark D/H4 supply; draw Fib of last daily downswing; add pivots  
-  2) Price rallies into zone ± DP/R1; require:  
-     • Absorption: upper wick + close back inside upper band + vol ≥ P95  
-     • Breakout‑retest down: lose DP on vol; retest DP fails (upper wick)  
-  3) Short; stop above zone; T1 = DP/S1; T2 = S2 or Fib 127/161.8; trail by swing/ATR
-    """)
-    st.markdown("**9) Pre‑trade audit (60 seconds)**")
-    st.markdown("""
-- News in next 60–90 min? If yes, smaller size or skip  
-- Spread/latency OK? If not, skip  
-- Session fit: London/NY opens for breakouts; off‑hours for fades
-    """)
-    st.markdown("**10) Common pitfalls (and fixes)**")
-    st.markdown("""
-- COT extreme and you chase: at 6M/36M >85 or <15, only sell rallies or buy dips—don’t chase breaks  
-- Using average volume, not percentiles: switch to percentile threshold per 15m bucket to avoid session bias  
-- Zone freshness ignored: if a zone has >2 retests, odds drop—demand stronger confirmation  
-- Pivot mismatch: fading against trend when price is holding above/below DP—align with the day type
-    """)
-
-show_playbook = st.checkbox("Show trade playbook", value=False, key="show_playbook")
-if show_playbook:
-    render_playbook()
-
-# ---------- Tip (pp vs %) ----------
-st.info(
-    "Tip: pp = percentage points (absolute difference), not percent change.\n"
-    "• COT 6M 62% → 67% = +5 pp (not +8.1%)\n"
-    "• Specs Net %OI 51.6% → 49.9% = −1.7 pp\n"
-    "• Open Interest WoW is a percent change (e.g., +2.0%), not pp",
-    icon="💡"
+# -----------------------------
+# CONFIG & MODERN STYLING
+# -----------------------------
+st.set_page_config(
+    page_title="ATR Body Dashboard", 
+    page_icon="📊", 
+    layout="wide"
 )
 
-# ---------- Helpers ----------
-def parse_flt(s: str) -> Optional[float]:
-    if s is None:
-        return None
-    s = str(s).strip().replace("%", "")
-    if s == "":
-        return None
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-def fmt(x: Optional[float], nd: int = 1, suffix: str = "") -> str:
-    return "n/a" if x is None else f"{x:.{nd}f}{suffix}"
-
-def fmt_delta_pp(x: Optional[float]) -> Optional[str]:
-    return None if x is None else f"{x:.1f} pp"
-
-def fmt_delta_pct(x: Optional[float]) -> Optional[str]:
-    return None if x is None else f"{x:.1f}%"
-
-def net_pct_of_oi(long_pct: Optional[float], short_pct: Optional[float],
-                  net_pct: Optional[float] = None) -> Optional[float]:
-    if net_pct is not None:
-        return float(net_pct)
-    if long_pct is None or short_pct is None:
-        return None
-    return float(long_pct) - float(short_pct)
-
-def wow_pp(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    if current is None or previous is None:
-        return None
-    return float(current) - float(previous)
-
-def pct_change(current: Optional[float], previous: Optional[float]) -> Optional[float]:
-    if current is None or previous is None or previous == 0:
-        return None
-    return (float(current) - float(previous)) / float(previous) * 100.0
-
-def bias_from_indices(cot6: Optional[float], cot36: Optional[float]) -> str:
-    if cot6 is None or cot36 is None:
-        return "Neutral"
-    if cot6 > 60 and cot36 > 50:
-        return "Longs allowed"
-    if cot6 < 40 and cot36 < 50:
-        return "Shorts allowed"
-    return "Neutral"
-
-def flags_and_grade(
-    bias: str,
-    cot6: Optional[float],
-    cot36: Optional[float],
-    d_cot6_pp: Optional[float],
-    oi_wow_pct: Optional[float],
-    net_wow_pp: Optional[float],
-    net_now: Optional[float]
-) -> Dict[str, str]:
-    extremes = False
-    if cot6 is not None and cot36 is not None:
-        extremes = (cot6 > 85 or cot36 > 85 or cot6 < 15 or cot36 < 15)
-
-    conflict = "No"
-    if net_now is not None and bias != "Neutral":
-        if (bias == "Shorts allowed" and net_now > 0) or (bias == "Longs allowed" and net_now < 0):
-            conflict = "Yes"
-
-    def mom_ok_long():
-        return ((d_cot6_pp is not None and d_cot6_pp >= 5)
-                or (oi_wow_pct is not None and oi_wow_pct >= 0)
-                or (net_wow_pp is not None and net_wow_pp >= 0))
-
-    def mom_ok_short():
-        return ((d_cot6_pp is not None and d_cot6_pp <= -5)
-                or (oi_wow_pct is not None and oi_wow_pct <= 0)
-                or (net_wow_pp is not None and net_wow_pp <= 0))
-
-    if bias == "Neutral":
-        return {"extremes": "Yes" if extremes else "No", "conflict": conflict, "grade": "C", "note": "Directional filter off"}
-
-    if bias == "Longs allowed":
-        supp = mom_ok_long()
-        if extremes and not supp:
-            return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
-        if extremes:
-            return {"extremes": "Yes", "conflict": conflict, "grade": "B", "note": "Extreme"}
-        if supp:
-            return {"extremes": "No", "conflict": conflict, "grade": "A", "note": "Momentum supportive"}
-        return {"extremes": "No", "conflict": conflict, "grade": "B", "note": "Momentum not confirmed"}
-
-    supp = mom_ok_short()
-    if extremes and not supp:
-        return {"extremes": "Yes", "conflict": conflict, "grade": "B-", "note": "Extreme + weak momentum"}
-    if extremes:
-        return {"extremes": "Yes", "conflict": conflict, "grade": "B", "note": "Extreme"}
-    if supp:
-        return {"extremes": "No", "conflict": conflict, "grade": "A", "note": "Momentum supportive"}
-    return {"extremes": "No", "conflict": conflict, "grade": "B", "note": "Momentum not confirmed"}
-
-# ---------- Signal Score ----------
-def compute_signal_score(
-    bias: str,
-    extremes: str,
-    conflict: str,
-    in_htf_zone: bool,
-    fresh_zone: bool,
-    pivot_confluence: bool,
-    fib_confluence: bool,
-    vol15_spike: bool,
-    vol1h_support: bool,
-    bb_confirm: bool
-) -> Dict[str, float]:
-    score = 0.0
-    if bias in ("Longs allowed", "Shorts allowed"):
-        score += 4.0
-    if in_htf_zone:
-        score += 3.0
-        if fresh_zone:
-            score += 0.5
-    if pivot_confluence:
-        score += 0.75
-    if fib_confluence:
-        score += 0.75
-    if vol15_spike:
-        score += 2.0
-        if vol1h_support:
-            score += 0.5
-    if bb_confirm:
-        score += 1.0
-    if extremes == "Yes":
-        score -= 0.5
-    if conflict == "Yes":
-        score -= 0.5
-    score = max(0.0, min(10.0, score))
-    tier = "A" if score >= 8.5 else ("B" if score >= 6.5 else "C")
-    return {"score": score, "tier": tier}
-
-def action_lines_from_score(direction: str, tier: str, extremes: str) -> List[str]:
-    if direction == "Long":
-        if extremes == "Yes":
-            return ["Buy pullbacks into demand/pivot clusters; avoid chasing fresh breakouts",
-                    "Require trigger (absorption/retest fail); reduce size"]
-        return ["Trade with trend; buy pullbacks or breakout‑retest holds",
-                "Normal size if spreads/news OK" if tier in ("A", "B") else "Tactical only; smaller size"]
-    if direction == "Short":
-        if extremes == "Yes":
-            return ["Sell rallies into supply/pivot clusters; avoid chasing fresh breakdowns",
-                    "Require trigger (rejection/retest fail); reduce size"]
-        return ["Trade with trend; short failed retests or breakdown‑retest holds",
-                "Normal size if spreads/news OK" if tier in ("A", "B") else "Tactical only; smaller size"]
-    return ["No directional filter; treat setups as tactical only",
-            "Demand A+ price confirmation (zone + rejection/volume)"]
-
-# ---------- Analyzer tailored to manual MarketBulls inputs ----------
-def analyze_from_marketbulls_legacy(
-    name: str,
-    cot6: Optional[float], cot36: Optional[float],
-    spec_long_pct_oi: Optional[float], spec_short_pct_oi: Optional[float],
-    prev_cot6: Optional[float] = None,
-    prev_spec_long_pct_oi: Optional[float] = None, prev_spec_short_pct_oi: Optional[float] = None,
-    oi_current: Optional[float] = None, oi_prev: Optional[float] = None,
-) -> Dict[str, Optional[float]]:
-    net_now = net_pct_of_oi(spec_long_pct_oi, spec_short_pct_oi)
-    net_prev = net_pct_of_oi(prev_spec_long_pct_oi, prev_spec_short_pct_oi)
-    net_wow = wow_pp(net_now, net_prev)
-    d_cot6_pp = wow_pp(cot6, prev_cot6)
-    oi_wow = pct_change(oi_current, oi_prev)
-
-    bias = bias_from_indices(cot6, cot36)
-    g = flags_and_grade(bias, cot6, cot36, d_cot6_pp, oi_wow, net_wow, net_now)
-
-    return {
-        "Instrument": name,
-        "COT 6M": cot6, "COT 6M WoW (pp)": d_cot6_pp, "COT 36M": cot36,
-        "Specs Long %OI": spec_long_pct_oi, "Specs Short %OI": spec_short_pct_oi,
-        "Specs Net %OI": net_now, "Specs Net %OI WoW (pp)": net_wow,
-        "OI WoW (%)": oi_wow,
-        "Bias": bias, "Grade": g["grade"],
-        "Extremes": g["extremes"], "Conflict": g["conflict"], "Note": g["note"],
+# Enhanced Modern CSS styling
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 20px;
+        text-align: center;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
     }
+    
+    .main-header h1 {
+        color: white;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 700;
+        font-size: 2.5rem;
+        margin: 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .main-header p {
+        color: rgba(255,255,255,0.9);
+        font-family: 'Poppins', sans-serif;
+        font-size: 1.1rem;
+        margin: 0.5rem 0 0 0;
+    }
+    
+    .metric-box {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        text-align: center;
+        color: white;
+        box-shadow: 0 8px 25px rgba(240, 147, 251, 0.3);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        margin: 0.5rem 0;
+    }
+    
+    .metric-box:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 15px 35px rgba(240, 147, 251, 0.4);
+    }
+    
+    .metric-box h3 {
+        margin: 0;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 600;
+        font-size: 1.8rem;
+    }
+    
+    .metric-box p {
+        margin: 0.5rem 0 0 0;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 400;
+        opacity: 0.9;
+    }
+    
+    .section-header {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        padding: 1rem 2rem;
+        border-radius: 15px;
+        margin: 2rem 0 1rem 0;
+        box-shadow: 0 6px 20px rgba(17, 153, 142, 0.3);
+    }
+    
+    .section-header h2 {
+        color: white;
+        margin: 0;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 600;
+        font-size: 1.5rem;
+    }
+    
+    .data-container {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+    }
+    
+    .config-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 20px;
+        color: white;
+        margin: 1rem 0;
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    
+    .config-box h3 {
+        margin: 0 0 1rem 0;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 600;
+        font-size: 1.4rem;
+    }
+    
+    .signal-strong { 
+        background: linear-gradient(135deg, #4ade80, #22c55e);
+        color: white; 
+        padding: 6px 12px; 
+        border-radius: 20px; 
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+    }
+    .signal-neutral { 
+        background: linear-gradient(135deg, #fbbf24, #f59e0b);
+        color: white; 
+        padding: 6px 12px; 
+        border-radius: 20px; 
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+    }
+    .signal-weak { 
+        background: linear-gradient(135deg, #f87171, #ef4444);
+        color: white; 
+        padding: 6px 12px; 
+        border-radius: 20px; 
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+    }
+    
+    .chart-container {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+    }
+    
+    .welcome-box {
+        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+        padding: 2rem;
+        border-radius: 20px;
+        text-align: center;
+        margin: 2rem 0;
+        box-shadow: 0 8px 25px rgba(252, 182, 159, 0.3);
+    }
+    
+    .welcome-box h3 {
+        color: #8b4513;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 600;
+        margin: 0 0 1rem 0;
+    }
+    
+    .welcome-box p {
+        color: #8b4513;
+        font-family: 'Poppins', sans-serif;
+        margin: 0;
+    }
+    
+    .help-section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 2rem 0;
+        color: white;
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    
+    .stSelectbox > div > div {
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+    }
+    
+    .stNumberInput > div > div {
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 25px;
+        border: none;
+        padding: 0.8rem 2rem;
+        font-weight: 600;
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# ---------- Input forms (manual only) ----------
-def instrument_form(default_name: str, key: str):
-    st.markdown(f"#### {default_name}")
-    with st.container():
-        st.write("Current week (MarketBulls → Legacy → Large Speculators)")
-        c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
-        cot6 = parse_flt(c1.text_input("COT Index 6M", value="", key=f"{key}_cot6"))
-        cot36 = parse_flt(c2.text_input("COT Index 36M", value="", key=f"{key}_cot36"))
-        long_pct = parse_flt(c3.text_input("Specs Long %OI", value="", key=f"{key}_long_pct"))
-        short_pct = parse_flt(c4.text_input("Specs Short %OI", value="", key=f"{key}_short_pct"))
-        oi_curr = parse_flt(c5.text_input("Open Interest (contracts) [optional]", value="", key=f"{key}_oi_curr"))
+OANDA_API_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
+API_KEY = st.secrets["API_KEY"]
 
-        show_wow = st.checkbox("Show previous week (WoW) fields", value=False, key=f"{key}_show_wow")
-        if show_wow:
-            st.write("Previous week (for WoW)")
-            p1, p2, p3, p4 = st.columns(4)
-            prev_cot6 = parse_flt(p1.text_input("Prev COT 6M", value="", key=f"{key}_prev_cot6"))
-            prev_long_pct = parse_flt(p2.text_input("Prev Specs Long %OI", value="", key=f"{key}_prev_long_pct"))
-            prev_short_pct = parse_flt(p3.text_input("Prev Specs Short %OI", value="", key=f"{key}_prev_short_pct"))
-            oi_prev = parse_flt(p4.text_input("Prev Open Interest [optional]", value="", key=f"{key}_oi_prev"))
-        else:
-            prev_cot6 = prev_long_pct = prev_short_pct = oi_prev = None
-
-        st.write("Checklist (manual confirmations; no auto‑import)")
-        q1, q2, q3 = st.columns(3)
-        in_zone = q1.checkbox("In HTF zone (Daily/H4)", value=False, key=f"{key}_in_zone", help="Price is inside a marked Daily/H4 Supply or Demand zone.")
-        fresh = q1.checkbox("Zone fresh (≤2 retests)", value=False, key=f"{key}_fresh", help="Zone hasn’t been hit more than twice since it formed.")
-        pivot_cf = q2.checkbox("Pivot confluence", value=False, key=f"{key}_pivot_cf", help="Zone overlaps DP/R1/S1 (within ~0.15–0.20 ATR).")
-        fib_cf = q2.checkbox("Fib confluence", value=False, key=f"{key}_fib_cf", help="At 38.2–61.8% pullback or 127–161.8% extension from last impulse.")
-        vol15 = q3.checkbox("15m volume spike ≥ P95", value=False, key=f"{key}_vol15", help="Current 15m volume is in top 5% for that bucket over ~21 days (manual).")
-        vol1h = q3.checkbox("1h volume supportive (P90)", value=False, key=f"{key}_vol1h", help="Sum of last 4×15m bars in top 10% for that hour‑of‑day (manual).")
-        bb_conf = q3.checkbox("Bollinger confirmation", value=False, key=f"{key}_bb_conf", help="Re‑entry (wick back inside band) or breakout‑retest hold with 20/2σ bands.")
-
-        notes = st.text_area("Notes (optional)", value="", key=f"{key}_notes")
-
-        return {
-            "name": default_name, "cot6": cot6, "cot36": cot36,
-            "long_pct": long_pct, "short_pct": short_pct,
-            "prev_cot6": prev_cot6, "prev_long_pct": prev_long_pct, "prev_short_pct": prev_short_pct,
-            "oi_current": oi_curr, "oi_prev": oi_prev,
-            "in_zone": in_zone, "fresh": fresh,
-            "pivot_cf": pivot_cf, "fib_cf": fib_cf,
-            "vol15": vol15, "vol1h": vol1h, "bb_conf": bb_conf,
-            "notes": notes,
-        }
-
-# ---------- Tabs (single creation) ----------
-tabs = st.tabs(["XAUUSD", "NAS100", "US30", "Custom"])
-
-with tabs[0]:
-    xau = instrument_form("XAUUSD", key="xau")
-with tabs[1]:
-    nas = instrument_form("NAS100", key="nas")
-with tabs[2]:
-    dow = instrument_form("US30", key="dow")
-with tabs[3]:
-    cname = st.text_input("Custom instrument name", value="CUSTOM", key="custom_name_input")
-    custom = instrument_form(cname, key="custom")
-
-# ---------- Render card ----------
-def render_card(row: Dict[str, Optional[float]], checklist: Dict[str, bool], notes: str):
-    direction = "Long" if row["Bias"] == "Longs allowed" else ("Short" if row["Bias"] == "Shorts allowed" else "Neutral")
-    sc = compute_signal_score(
-        bias=row["Bias"],
-        extremes=row["Extremes"],
-        conflict=row["Conflict"],
-        in_htf_zone=checklist["in_zone"],
-        fresh_zone=checklist["fresh"],
-        pivot_confluence=checklist["pivot_cf"],
-        fib_confluence=checklist["fib_cf"],
-        vol15_spike=checklist["vol15"],
-        vol1h_support=checklist["vol1h"],
-        bb_confirm=checklist["bb_conf"]
+# -----------------------------
+# CORE FUNCTIONS
+# -----------------------------
+@st.cache_data(ttl=300)
+def fetch_oanda_data(instrument, timeframe, start_utc, end_utc):
+    """Fetch candles from OANDA API"""
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    params = {
+        "granularity": timeframe,
+        "price": "M",
+        "from": start_utc,
+        "to": end_utc
+    }
+    
+    response = requests.get(
+        OANDA_API_URL.format(instrument), 
+        headers=headers, 
+        params=params,
+        timeout=10
     )
-    acts = action_lines_from_score(direction, sc["tier"], row["Extremes"])
+    response.raise_for_status()
+    return response.json()["candles"]
 
-    with st.container():
-        st.subheader(row["Instrument"])
-        chips = [
-            f'<span class="badge">Bias: {row["Bias"]}</span>',
-            f'<span class="badge">Grade: {row["Grade"]}</span>',
-            f'<span class="badge">Signal Score: {sc["score"]:.1f} ({sc["tier"]})</span>',
-        ]
-        st.markdown(" ".join(chips), unsafe_allow_html=True)
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("COT 6M", fmt(row["COT 6M"]), delta=fmt_delta_pp(row.get("COT 6M WoW (pp)")))
-        m2.metric("COT 36M", fmt(row["COT 36M"]))
-        m3.metric("Specs Net %OI", fmt(row["Specs Net %OI"]), delta=fmt_delta_pp(row.get("Specs Net %OI WoW (pp)")))
-        m4.metric("OI WoW", fmt(row.get("OI WoW (%)")), delta=fmt_delta_pct(row.get("OI WoW (%)")))
-
-        st.caption(f"Flags: Extremes={row['Extremes']}; Conflict={row['Conflict']}; {row['Note']}")
-        st.write("• " + acts[0])
-        st.write("• " + acts[1])
-
-        with st.expander("Checklist state"):
-            cc_df = pd.DataFrame([{
-                "In HTF zone": checklist["in_zone"],
-                "Fresh zone (≤2)": checklist["fresh"],
-                "Pivot confluence": checklist["pivot_cf"],
-                "Fib confluence": checklist["fib_cf"],
-                "15m vol spike (P95)": checklist["vol15"],
-                "1h vol supportive (P90)": checklist["vol1h"],
-                "Bollinger confirmation": checklist["bb_conf"],
-            }])
-            # use width='stretch' (replaces deprecated use_container_width=True)
-            st.dataframe(cc_df, hide_index=True, width="stretch")
-            if notes:
-                st.caption(f"Notes: {notes}")
-
-    row["Signal Score"] = sc["score"]
-    row["Signal Tier"] = sc["tier"]
-    row["Direction"] = direction
-    row.update({
-        "In HTF zone": checklist["in_zone"],
-        "Fresh zone": checklist["fresh"],
-        "Pivot confluence": checklist["pivot_cf"],
-        "Fib confluence": checklist["fib_cf"],
-        "Vol15 spike": checklist["vol15"],
-        "Vol1h support": checklist["vol1h"],
-        "Bollinger confirm": checklist["bb_conf"],
-        "Notes": notes,
-    })
-    return row
-
-# ---------- Analyze helper ----------
-def analyze_if_ready(d):
-    if d["cot6"] is not None and d["cot36"] is not None and d["long_pct"] is not None and d["short_pct"] is not None:
-        return analyze_from_marketbulls_legacy(
-            name=d["name"], cot6=d["cot6"], cot36=d["cot36"],
-            spec_long_pct_oi=d["long_pct"], spec_short_pct_oi=d["short_pct"],
-            prev_cot6=d["prev_cot6"], prev_spec_long_pct_oi=d["prev_long_pct"], prev_spec_short_pct_oi=d["prev_short_pct"],
-            oi_current=d["oi_current"], oi_prev=d["oi_prev"],
-        )
-    return None
-
-# ---------- Run ----------
-st.divider()
-st.subheader("Results")
-
-results: List[Dict[str, Optional[float]]] = []
-for d in [xau, nas, dow, custom]:
-    r = analyze_if_ready(d)
-    if r:
-        enriched = render_card(
-            r,
-            {
-                "in_zone": d["in_zone"], "fresh": d["fresh"],
-                "pivot_cf": d["pivot_cf"], "fib_cf": d["fib_cf"],
-                "vol15": d["vol15"], "vol1h": d["vol1h"], "bb_conf": d["bb_conf"],
-            },
-            d["notes"]
-        )
-        results.append(enriched)
-    else:
-        with st.container():
-            st.subheader(d["name"])
-            st.info("Enter: COT 6M, COT 36M, Specs Long %OI, Specs Short %OI to analyze.", icon="ℹ️")
-
-# ---------- Export ----------
-if results:
-    df = pd.DataFrame(results)
-    order_cols = [c for c in [
-        "Instrument", "Direction", "Bias", "Grade", "Signal Score", "Signal Tier",
-        "COT 6M", "COT 6M WoW (pp)", "COT 36M",
-        "Specs Long %OI", "Specs Short %OI", "Specs Net %OI", "Specs Net %OI WoW (pp)",
-        "OI WoW (%)",
-        "Extremes", "Conflict", "Note",
-        "In HTF zone", "Fresh zone", "Pivot confluence", "Fib confluence",
-        "Vol15 spike", "Vol1h support", "Bollinger confirm",
-        "Notes"
-    ] if c in df.columns]
-    df = df[order_cols]
-    st.download_button(
-        "⬇️ Download CSV",
-        data=df.to_csv(index=False),
-        file_name="cot_signal_report.csv",
-        mime="text/csv",
-        key="download_csv"
+def process_candle_data(candles_data, atr_value):
+    """Process raw candle data into structured DataFrame"""
+    if not candles_data:
+        return pd.DataFrame()
+    
+    # Convert to DataFrame
+    records = []
+    for candle in candles_data:
+        # Parse UTC time and convert to IST
+        utc_time = datetime.strptime(candle["time"][:19], "%Y-%m-%dT%H:%M:%S")
+        utc_time = pytz.utc.localize(utc_time)
+        ist_time = utc_time.astimezone(pytz.timezone("Asia/Kolkata"))
+        
+        records.append({
+            "Time": ist_time.strftime("%Y-%m-%d %I:%M %p"),
+            "Open": float(candle["mid"]["o"]),
+            "High": float(candle["mid"]["h"]),
+            "Low": float(candle["mid"]["l"]),
+            "Close": float(candle["mid"]["c"]),
+            "Timestamp": ist_time  # For sorting
+        })
+    
+    df = pd.DataFrame(records)
+    
+    # Calculate body multiples
+    df["Body"] = abs(df["Close"] - df["Open"])
+    df["Body_ATR_Multiple"] = (df["Body"] / atr_value).round(2)
+    
+    # Signal classification
+    df["Signal"] = pd.cut(
+        df["Body_ATR_Multiple"],
+        bins=[0, 0.7, 1.3, float('inf')],
+        labels=["Weak", "Neutral", "Strong"]
     )
+    
+    # Sort by time (chronological order)
+    df = df.sort_values("Timestamp").reset_index(drop=True)
+    
+    return df.drop("Timestamp", axis=1)  # Remove helper column
+
+def convert_ist_to_utc(dt_ist):
+    """Convert IST datetime to UTC ISO format"""
+    ist_tz = pytz.timezone("Asia/Kolkata")
+    utc_tz = pytz.utc
+    dt_localized = ist_tz.localize(dt_ist)
+    dt_utc = dt_localized.astimezone(utc_tz)
+    return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# -----------------------------
+# STREAMLIT UI
+# -----------------------------
+
+# Main Header
+st.markdown("""
+<div class="main-header">
+    <h1>📊 ATR Body Multiple Dashboard</h1>
+    <p>Analyze candle body strength relative to Average True Range with advanced insights</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Sidebar Configuration
+with st.sidebar:
+    st.markdown("""
+    <div class="config-box">
+        <h3>⚙️ Configuration Panel</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Instrument selection
+    instrument = st.selectbox(
+        "📈 Select Instrument", 
+        ["XAU_USD", "NAS100_USD", "US30_USD"],
+        help="Choose your preferred trading instrument"
+    )
+    
+    # Timeframe
+    timeframe = st.radio(
+        "⏰ Timeframe Selection", 
+        ["H4", "D"],
+        horizontal=True,
+        help="H4 = 4-hour candles, D = Daily candles"
+    )
+    
+    # ATR value
+    atr_value = st.number_input(
+        "📊 ATR Value", 
+        min_value=0.1, 
+        value=20.0, 
+        step=0.1,
+        help="Enter your calculated ATR value in price units"
+    )
+    
+    st.markdown("---")
+    
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); 
+                padding: 1rem; border-radius: 15px; margin: 1rem 0; color: white;">
+        <h4 style="margin: 0; font-family: 'Poppins', sans-serif;">📅 Time Range (IST)</h4>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Date inputs
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("Start Date", value=datetime.today())
+        start_time = st.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
+    
+    with col2:
+        end_date = st.date_input("End Date", value=datetime.today())
+        end_time = st.time_input("End Time", value=datetime.strptime("21:00", "%H:%M").time())
+    
+    # Fetch button
+    fetch_data = st.button("🚀 Fetch Data", type="primary", use_container_width=True)
+
+# Main content
+if fetch_data:
+    # Combine datetime
+    start_dt = datetime.combine(start_date, start_time)
+    end_dt = datetime.combine(end_date, end_time)
+    
+    # Convert to UTC
+    start_utc = convert_ist_to_utc(start_dt)
+    end_utc = convert_ist_to_utc(end_dt)
+    
+    try:
+        with st.spinner("🔄 Fetching data from OANDA API..."):
+            # Fetch and process data
+            raw_candles = fetch_oanda_data(instrument, timeframe, start_utc, end_utc)
+            df = process_candle_data(raw_candles, atr_value)
+            
+            if df.empty:
+                st.warning("⚠️ No data found for the selected time range.")
+            else:
+                # Summary metrics in beautiful boxes
+                st.markdown("""
+                <div class="section-header">
+                    <h2>📊 Analysis Summary</h2>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.markdown(f"""
+                    <div class="metric-box">
+                        <h3>{len(df)}</h3>
+                        <p>📋 Total Candles</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    strong_count = len(df[df["Signal"] == "Strong"])
+                    st.markdown(f"""
+                    <div class="metric-box">
+                        <h3>{strong_count}</h3>
+                        <p>💪 Strong Signals</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    avg_multiple = df["Body_ATR_Multiple"].mean()
+                    st.markdown(f"""
+                    <div class="metric-box">
+                        <h3>{avg_multiple:.2f}x</h3>
+                        <p>📈 Average Multiple</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col4:
+                    max_multiple = df["Body_ATR_Multiple"].max()
+                    st.markdown(f"""
+                    <div class="metric-box">
+                        <h3>{max_multiple:.2f}x</h3>
+                        <p>🔥 Maximum Multiple</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Data table section
+                st.markdown(f"""
+                <div class="section-header">
+                    <h2>📋 {instrument} ({timeframe}) - Detailed Analysis</h2>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.container():
+                    st.markdown('<div class="data-container">', unsafe_allow_html=True)
+                    
+                    # Format display DataFrame
+                    display_df = df.copy()
+                    display_df["Body_ATR_Multiple"] = display_df["Body_ATR_Multiple"].apply(lambda x: f"{x:.2f}x")
+                    
+                    # Display dataframe with custom styling
+                    st.dataframe(
+                        display_df[["Time", "Open", "High", "Low", "Close", "Body_ATR_Multiple", "Signal"]],
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "Time": st.column_config.TextColumn("🕒 Time (IST)", width="large"),
+                            "Open": st.column_config.NumberColumn("📈 Open", format="%.1f"),
+                            "High": st.column_config.NumberColumn("⬆️ High", format="%.1f"),
+                            "Low": st.column_config.NumberColumn("⬇️ Low", format="%.1f"),
+                            "Close": st.column_config.NumberColumn("📉 Close", format="%.1f"),
+                            "Body_ATR_Multiple": st.column_config.TextColumn("📊 Body/ATR"),
+                            "Signal": st.column_config.TextColumn("🎯 Signal"),
+                        }
+                    )
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Chart section
+                st.markdown("""
+                <div class="section-header">
+                    <h2>📊 Interactive Chart Visualization</h2>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.container():
+                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                    
+                    chart_df = df.set_index("Time")["Body_ATR_Multiple"]
+                    st.bar_chart(chart_df, height=450, use_container_width=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Download section
+                st.markdown("""
+                <div class="section-header">
+                    <h2>💾 Export Data</h2>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    "📥 Download Complete Analysis (CSV)",
+                    csv_data,
+                    file_name=f"{instrument}_{timeframe}_atr_analysis.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+                
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ API Connection Error: {str(e)}")
+    except Exception as e:
+        st.error(f"❌ Processing Error: {str(e)}")
+
+else:
+    # Welcome section
+    st.markdown("""
+    <div class="welcome-box">
+        <h3>🎯 Welcome to Advanced ATR Analysis</h3>
+        <p>Configure your settings in the sidebar and click 'Fetch Data' to begin comprehensive candle analysis</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Enhanced help section
+    with st.expander("📚 Complete User Guide", expanded=False):
+        st.markdown("""
+        <div class="help-section">
+            <h3>🎓 How to Master This Dashboard</h3>
+            
+            <h4>📋 Quick Start Guide:</h4>
+            <ul>
+                <li><strong>Select Instrument:</strong> Choose from XAU_USD (Gold), NAS100_USD (NASDAQ), or US30_USD (Dow Jones)</li>
+                <li><strong>Pick Timeframe:</strong> H4 for 4-hour candles or D for daily analysis</li>
+                <li><strong>Set ATR Value:</strong> Enter your pre-calculated Average True Range</li>
+                <li><strong>Choose Time Range:</strong> Select start and end times in Indian Standard Time</li>
+                <li><strong>Analyze Results:</strong> Review the comprehensive analysis and charts</li>
+            </ul>
+            
+            <h4>🎯 Signal Interpretation:</h4>
+            <ul>
+                <li><strong>🟢 Strong (>1.3x ATR):</strong> Large candle bodies indicate strong momentum and trending conditions</li>
+                <li><strong>🟡 Neutral (0.7x-1.3x ATR):</strong> Average-sized bodies suggest normal market activity</li>
+                <li><strong>🔴 Weak (<0.7x ATR):</strong> Small bodies indicate low momentum, possible consolidation</li>
+            </ul>
+            
+            <h4>💡 Pro Trading Tips:</h4>
+            <ul>
+                <li>Strong signals often precede continuation moves</li>
+                <li>Multiple weak signals may indicate range-bound markets</li>
+                <li>Use in conjunction with support/resistance levels</li>
+                <li>Higher timeframes provide more reliable signals</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
