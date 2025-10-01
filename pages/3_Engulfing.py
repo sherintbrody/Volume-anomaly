@@ -215,11 +215,6 @@ if fetch_data:
                 
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
                 
-                # Chart
-                st.subheader("📊 Body ATR Multiples Chart")
-                chart_df = df.set_index("Time")["Body_ATR_Multiple"]
-                st.bar_chart(chart_df, height=400)
-                
                 # Download button
                 csv_data = df.to_csv(index=False)
                 st.download_button(
@@ -238,20 +233,3 @@ if fetch_data:
 else:
     # Welcome message
     st.info("👆 Configure your settings in the sidebar and click 'Fetch Data' to begin analysis.")
-    
-    # Help section
-    with st.expander("ℹ️ How to use this dashboard"):
-        st.markdown("""
-        **ATR Body Multiple Dashboard** helps you analyze candle strength:
-        
-        1. **Select Instrument**: Choose from XAU_USD, NAS100_USD, or US30_USD
-        2. **Pick Timeframe**: H4 (4-hour) or D (daily) candles
-        3. **Set ATR Value**: Enter your calculated ATR value
-        4. **Choose Time Range**: Select start and end times in IST
-        5. **Fetch Data**: Click the button to analyze
-        
-        **Signal Interpretation:**
-        - 🔴 **Weak** (< 0.7x ATR): Small body, low momentum
-        - 🟡 **Neutral** (0.7x - 1.3x ATR): Average body size
-        - 🟢 **Strong** (> 1.3x ATR): Large body, strong momentum
-        """)
