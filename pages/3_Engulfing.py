@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Enhanced CSS styling for better table readability with larger rows and font
+# Enhanced CSS styling with DOUBLE row height and font size
 st.markdown("""
 <style>
 .metric-card {
@@ -52,13 +52,13 @@ st.markdown("""
     box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
 }
 
-/* Enhanced Custom table styling with larger rows and font */
+/* DOUBLE-SIZED Custom table styling with much larger rows and font */
 .dataframe {
     font-family: 'Arial', sans-serif;
     border-radius: 15px;
     overflow: hidden;
     box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-    font-size: 16px !important; /* Increased font size */
+    font-size: 32px !important; /* DOUBLED font size */
 }
 
 .dataframe th {
@@ -66,47 +66,62 @@ st.markdown("""
     color: white;
     font-weight: 600;
     text-align: center;
-    padding: 20px 12px !important; /* Doubled header padding */
+    padding: 40px 24px !important; /* DOUBLED header padding */
     border: none;
-    font-size: 16px !important; /* Increased header font size */
+    font-size: 32px !important; /* DOUBLED header font size */
 }
 
 .dataframe td {
     text-align: center;
-    padding: 20px 12px !important; /* Doubled row padding */
+    padding: 40px 24px !important; /* DOUBLED row padding */
     border-bottom: 1px solid #f0f0f0;
-    font-size: 15px !important; /* Increased cell font size */
-    line-height: 1.6 !important; /* Better line spacing */
+    font-size: 30px !important; /* DOUBLED cell font size */
+    line-height: 2.0 !important; /* DOUBLED line spacing */
 }
 
 .dataframe tr:hover {
     background-color: #f8fafc;
 }
 
-/* Override Streamlit's default table styling */
+/* Override Streamlit's default table styling with DOUBLED sizes */
 div[data-testid="stDataFrame"] > div {
-    font-size: 16px !important;
+    font-size: 32px !important;
 }
 
 div[data-testid="stDataFrame"] table {
-    font-size: 16px !important;
+    font-size: 32px !important;
 }
 
 div[data-testid="stDataFrame"] thead th {
-    padding: 20px 12px !important;
-    font-size: 16px !important;
+    padding: 40px 24px !important;
+    font-size: 32px !important;
     font-weight: 600 !important;
 }
 
 div[data-testid="stDataFrame"] tbody td {
-    padding: 20px 12px !important;
-    font-size: 15px !important;
-    line-height: 1.6 !important;
+    padding: 40px 24px !important;
+    font-size: 30px !important;
+    line-height: 2.0 !important;
 }
 
-/* Ensure proper row height */
+/* DOUBLED row height */
 div[data-testid="stDataFrame"] tr {
-    min-height: 60px !important;
+    min-height: 120px !important;
+}
+
+/* Additional overrides for maximum font size */
+div[data-testid="stDataFrame"] * {
+    font-size: 30px !important;
+}
+
+/* Force larger text in all table elements */
+.stDataFrame table, 
+.stDataFrame th, 
+.stDataFrame td,
+.stDataFrame thead,
+.stDataFrame tbody {
+    font-size: 30px !important;
+    line-height: 2.0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -299,59 +314,59 @@ if fetch_data:
                     "Time": st.column_config.TextColumn(
                         "🕒 Time (IST)",
                         help="Candle opening time in IST",
-                        width="medium"  # Increased from small to medium
+                        width="large"  # Increased to large for better visibility
                     ),
                     "Direction": st.column_config.TextColumn(
                         "📊 Dir",
                         help="🟢 Bullish, 🔴 Bearish, ➖ Doji",
-                        width="small"
+                        width="medium"
                     ),
                     "Open": st.column_config.NumberColumn(
                         "📈 Open",
                         format="%.2f",
-                        width="medium"  # Increased from small to medium
+                        width="large"  # Increased to large
                     ),
                     "High": st.column_config.NumberColumn(
                         "⬆️ High",
                         format="%.2f",
-                        width="medium"  # Increased from small to medium
+                        width="large"  # Increased to large
                     ),
                     "Low": st.column_config.NumberColumn(
                         "⬇️ Low",
                         format="%.2f",
-                        width="medium"  # Increased from small to medium
+                        width="large"  # Increased to large
                     ),
                     "Close": st.column_config.NumberColumn(
                         "📉 Close",
                         format="%.2f",
-                        width="medium"  # Increased from small to medium
+                        width="large"  # Increased to large
                     ),
                     "Body_Percentage": st.column_config.NumberColumn(
                         "📏 Body %",
                         help="Body as percentage of total candle range",
                         format="%.1f%%",
-                        width="medium"  # Increased from small to medium
+                        width="large"  # Increased to large
                     ),
                     "Body_ATR_Multiple": st.column_config.NumberColumn(
                         "📊 ATR Multiple",
                         help="Body size relative to ATR",
                         format="%.2fx",
-                        width="medium"
+                        width="large"  # Increased to large
                     ),
                     "Signal": st.column_config.TextColumn(
                         "🎯 Signal",
                         help="Strength classification based on ATR multiple",
-                        width="medium"
+                        width="large"  # Increased to large
                     ),
                 }
                 
-                # Display the enhanced dataframe with increased height for better row visibility
+                # Display the enhanced dataframe with significantly increased height
                 st.dataframe(
                     display_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config=column_config,
-                    height=700  # Increased height from 600 to 700 for better visibility
+                    height=800  # Further increased height for larger rows
                 )
                 
                 # Additional insights
