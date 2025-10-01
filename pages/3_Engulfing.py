@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Enhanced CSS styling for better table readability
+# Enhanced CSS styling for better table readability with larger rows and font
 st.markdown("""
 <style>
 .metric-card {
@@ -52,12 +52,13 @@ st.markdown("""
     box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
 }
 
-/* Custom table styling */
+/* Enhanced Custom table styling with larger rows and font */
 .dataframe {
     font-family: 'Arial', sans-serif;
     border-radius: 15px;
     overflow: hidden;
     box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    font-size: 16px !important; /* Increased font size */
 }
 
 .dataframe th {
@@ -65,18 +66,47 @@ st.markdown("""
     color: white;
     font-weight: 600;
     text-align: center;
-    padding: 12px 8px;
+    padding: 20px 12px !important; /* Doubled header padding */
     border: none;
+    font-size: 16px !important; /* Increased header font size */
 }
 
 .dataframe td {
     text-align: center;
-    padding: 10px 8px;
+    padding: 20px 12px !important; /* Doubled row padding */
     border-bottom: 1px solid #f0f0f0;
+    font-size: 15px !important; /* Increased cell font size */
+    line-height: 1.6 !important; /* Better line spacing */
 }
 
 .dataframe tr:hover {
     background-color: #f8fafc;
+}
+
+/* Override Streamlit's default table styling */
+div[data-testid="stDataFrame"] > div {
+    font-size: 16px !important;
+}
+
+div[data-testid="stDataFrame"] table {
+    font-size: 16px !important;
+}
+
+div[data-testid="stDataFrame"] thead th {
+    padding: 20px 12px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+}
+
+div[data-testid="stDataFrame"] tbody td {
+    padding: 20px 12px !important;
+    font-size: 15px !important;
+    line-height: 1.6 !important;
+}
+
+/* Ensure proper row height */
+div[data-testid="stDataFrame"] tr {
+    min-height: 60px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -269,7 +299,7 @@ if fetch_data:
                     "Time": st.column_config.TextColumn(
                         "🕒 Time (IST)",
                         help="Candle opening time in IST",
-                        width="small"
+                        width="medium"  # Increased from small to medium
                     ),
                     "Direction": st.column_config.TextColumn(
                         "📊 Dir",
@@ -279,28 +309,28 @@ if fetch_data:
                     "Open": st.column_config.NumberColumn(
                         "📈 Open",
                         format="%.2f",
-                        width="small"
+                        width="medium"  # Increased from small to medium
                     ),
                     "High": st.column_config.NumberColumn(
                         "⬆️ High",
                         format="%.2f",
-                        width="small"
+                        width="medium"  # Increased from small to medium
                     ),
                     "Low": st.column_config.NumberColumn(
                         "⬇️ Low",
                         format="%.2f",
-                        width="small"
+                        width="medium"  # Increased from small to medium
                     ),
                     "Close": st.column_config.NumberColumn(
                         "📉 Close",
                         format="%.2f",
-                        width="small"
+                        width="medium"  # Increased from small to medium
                     ),
                     "Body_Percentage": st.column_config.NumberColumn(
                         "📏 Body %",
                         help="Body as percentage of total candle range",
                         format="%.1f%%",
-                        width="small"
+                        width="medium"  # Increased from small to medium
                     ),
                     "Body_ATR_Multiple": st.column_config.NumberColumn(
                         "📊 ATR Multiple",
@@ -315,13 +345,13 @@ if fetch_data:
                     ),
                 }
                 
-                # Display the enhanced dataframe
+                # Display the enhanced dataframe with increased height for better row visibility
                 st.dataframe(
                     display_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config=column_config,
-                    height=600  # Fixed height for better scrolling
+                    height=700  # Increased height from 600 to 700 for better visibility
                 )
                 
                 # Additional insights
