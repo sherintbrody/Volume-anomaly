@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Enhanced CSS styling with bigger fonts and taller cells (same width)
+# Enhanced CSS styling for better table readability
 st.markdown("""
 <style>
 .metric-card {
@@ -24,69 +24,59 @@ st.markdown("""
     text-align: center;
     margin: 0.5rem 0;
 }
-.signal-strong { background-color: #22c55e; color: white; padding: 4px 8px; border-radius: 20px; }
-.signal-neutral { background-color: #f59e0b; color: white; padding: 4px 8px; border-radius: 20px; }
-.signal-weak { background-color: #ef4444; color: white; padding: 4px 8px; border-radius: 20px; }
-
-/* Enhanced table styling with bigger fonts and taller cells */
-div[data-testid="stDataFrame"] {
-    font-size: 18px !important;
+.signal-strong { 
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    color: white; 
+    padding: 6px 12px; 
+    border-radius: 15px; 
+    font-weight: 600;
+    display: inline-block;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+.signal-neutral { 
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: white; 
+    padding: 6px 12px; 
+    border-radius: 15px; 
+    font-weight: 600;
+    display: inline-block;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+.signal-weak { 
+    background: linear-gradient(135deg, #f87171, #ef4444);
+    color: white; 
+    padding: 6px 12px; 
+    border-radius: 15px; 
+    font-weight: 600;
+    display: inline-block;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
 }
 
-div[data-testid="stDataFrame"] table {
-    font-size: 18px !important;
-}
-
-div[data-testid="stDataFrame"] thead th {
-    padding: 25px 8px !important; /* Increased vertical padding, kept horizontal same */
-    font-size: 20px !important; /* Bigger header font */
-    font-weight: 600 !important;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    text-align: center;
-}
-
-div[data-testid="stDataFrame"] tbody td {
-    padding: 25px 8px !important; /* Increased vertical padding, kept horizontal same */
-    font-size: 18px !important; /* Bigger cell font */
-    line-height: 1.8 !important;
-    text-align: center;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-div[data-testid="stDataFrame"] tr {
-    min-height: 70px !important; /* Taller rows */
-}
-
-div[data-testid="stDataFrame"] tr:hover {
-    background-color: #f8fafc;
-}
-
-/* Force bigger text in all table elements */
-.stDataFrame table, 
-.stDataFrame th, 
-.stDataFrame td,
-.stDataFrame thead,
-.stDataFrame tbody {
-    font-size: 18px !important;
-    line-height: 1.8 !important;
-}
-
-/* Additional overrides for styled dataframes */
+/* Custom table styling */
 .dataframe {
-    font-size: 18px !important;
+    font-family: 'Arial', sans-serif;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
 }
 
 .dataframe th {
-    padding: 25px 8px !important;
-    font-size: 20px !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
     font-weight: 600;
+    text-align: center;
+    padding: 12px 8px;
+    border: none;
 }
 
 .dataframe td {
-    padding: 25px 8px !important;
-    font-size: 18px !important;
-    line-height: 1.8 !important;
+    text-align: center;
+    padding: 10px 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.dataframe tr:hover {
+    background-color: #f8fafc;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -94,6 +84,7 @@ div[data-testid="stDataFrame"] tr:hover {
 OANDA_API_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
 API_KEY = st.secrets["API_KEY"]
 ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+
 # -----------------------------
 # CORE FUNCTIONS
 # -----------------------------
@@ -130,19 +121,34 @@ def process_candle_data(candles_data, atr_value):
         utc_time = pytz.utc.localize(utc_time)
         ist_time = utc_time.astimezone(pytz.timezone("Asia/Kolkata"))
         
+        open_price = float(candle["mid"]["o"])
+        high_price = float(candle["mid"]["h"])
+        low_price = float(candle["mid"]["l"])
+        close_price = float(candle["mid"]["c"])
+        
+        # Calculate body and range
+        body = abs(close_price - open_price)
+        total_range = high_price - low_price
+        body_percentage = (body / total_range * 100) if total_range > 0 else 0
+        
+        # Determine candle direction
+        direction = "🟢" if close_price > open_price else "🔴" if close_price < open_price else "➖"
+        
         records.append({
-            "Time": ist_time.strftime("%Y-%m-%d %I:%M %p"),
-            "Open": float(candle["mid"]["o"]),
-            "High": float(candle["mid"]["h"]),
-            "Low": float(candle["mid"]["l"]),
-            "Close": float(candle["mid"]["c"]),
+            "Time": ist_time.strftime("%m/%d %I:%M %p"),  # Shorter time format
+            "Direction": direction,
+            "Open": open_price,
+            "High": high_price,
+            "Low": low_price,
+            "Close": close_price,
+            "Body": body,
+            "Body_Percentage": body_percentage,
             "Timestamp": ist_time  # For sorting
         })
     
     df = pd.DataFrame(records)
     
-    # Calculate body multiples
-    df["Body"] = abs(df["Close"] - df["Open"])
+    # Calculate ATR multiples
     df["Body_ATR_Multiple"] = (df["Body"] / atr_value).round(2)
     
     # Signal classification
@@ -242,48 +248,104 @@ if fetch_data:
                     avg_multiple = df["Body_ATR_Multiple"].mean()
                     st.metric("📈 Avg Multiple", f"{avg_multiple:.2f}x")
                 with col4:
-                    max_multiple = df["Body_ATR_Multiple"].max()
-                    st.metric("🔥 Max Multiple", f"{max_multiple:.2f}x")
+                    avg_body_pct = df["Body_Percentage"].mean()
+                    st.metric("📏 Avg Body %", f"{avg_body_pct:.1f}%")
                 
                 st.markdown("---")
                 
-                # Data table
-                st.subheader(f"📋 {instrument} ({timeframe}) - Candle Analysis")
+                # Enhanced Data table
+                st.subheader(f"📋 {instrument} ({timeframe}) - Detailed Candle Analysis")
                 
-                # Format display DataFrame
+                # Prepare display DataFrame with better formatting
                 display_df = df.copy()
-                display_df["Body_ATR_Multiple"] = display_df["Body_ATR_Multiple"].apply(lambda x: f"{x:.2f}x")
                 
-                # Style the signal column
-                def style_signal(val):
-                    if val == "Strong":
-                        return "background-color: #22c55e; color: white; border-radius: 10px; text-align: center"
-                    elif val == "Neutral":
-                        return "background-color: #f59e0b; color: white; border-radius: 10px; text-align: center"
-                    else:
-                        return "background-color: #ef4444; color: white; border-radius: 10px; text-align: center"
+                # Format display columns
+                display_df = display_df[[
+                    "Time", "Direction", "Open", "High", "Low", "Close", 
+                    "Body_Percentage", "Body_ATR_Multiple", "Signal"
+                ]]
                 
-                # Display styled dataframe with increased height
-                styled_df = display_df[["Time", "Open", "High", "Low", "Close", "Body_ATR_Multiple", "Signal"]].style.applymap(
-                    style_signal, subset=["Signal"]
-                ).format({
-                    "Open": "{:.1f}",
-                    "High": "{:.1f}", 
-                    "Low": "{:.1f}",
-                    "Close": "{:.1f}"
-                })
+                # Configure columns for better display
+                column_config = {
+                    "Time": st.column_config.TextColumn(
+                        "🕒 Time (IST)",
+                        help="Candle opening time in IST",
+                        width="small"
+                    ),
+                    "Direction": st.column_config.TextColumn(
+                        "📊 Dir",
+                        help="🟢 Bullish, 🔴 Bearish, ➖ Doji",
+                        width="small"
+                    ),
+                    "Open": st.column_config.NumberColumn(
+                        "📈 Open",
+                        format="%.2f",
+                        width="small"
+                    ),
+                    "High": st.column_config.NumberColumn(
+                        "⬆️ High",
+                        format="%.2f",
+                        width="small"
+                    ),
+                    "Low": st.column_config.NumberColumn(
+                        "⬇️ Low",
+                        format="%.2f",
+                        width="small"
+                    ),
+                    "Close": st.column_config.NumberColumn(
+                        "📉 Close",
+                        format="%.2f",
+                        width="small"
+                    ),
+                    "Body_Percentage": st.column_config.NumberColumn(
+                        "📏 Body %",
+                        help="Body as percentage of total candle range",
+                        format="%.1f%%",
+                        width="small"
+                    ),
+                    "Body_ATR_Multiple": st.column_config.NumberColumn(
+                        "📊 ATR Multiple",
+                        help="Body size relative to ATR",
+                        format="%.2fx",
+                        width="medium"
+                    ),
+                    "Signal": st.column_config.TextColumn(
+                        "🎯 Signal",
+                        help="Strength classification based on ATR multiple",
+                        width="medium"
+                    ),
+                }
                 
+                # Display the enhanced dataframe
                 st.dataframe(
-                    styled_df, 
-                    use_container_width=True, 
+                    display_df,
+                    use_container_width=True,
                     hide_index=True,
-                    height=600  # Increased height to accommodate taller rows
+                    column_config=column_config,
+                    height=600  # Fixed height for better scrolling
                 )
                 
+                # Additional insights
+                st.markdown("### 📊 Quick Insights")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    high_body_pct = len(df[df["Body_Percentage"] > 70])
+                    st.metric("🔥 High Body % (>70%)", high_body_pct, help="Candles with strong directional moves")
+                
+                with col2:
+                    doji_count = len(df[df["Body_Percentage"] < 20])
+                    st.metric("🕯️ Doji-like (<20%)", doji_count, help="Candles with small bodies indicating indecision")
+                
+                with col3:
+                    max_body_pct = df["Body_Percentage"].max()
+                    st.metric("📈 Max Body %", f"{max_body_pct:.1f}%", help="Strongest directional candle")
+                
                 # Download button
+                st.markdown("---")
                 csv_data = df.to_csv(index=False)
                 st.download_button(
-                    "📥 Download CSV",
+                    "📥 Download Complete Analysis (CSV)",
                     csv_data,
                     file_name=f"{instrument}_{timeframe}_atr_analysis.csv",
                     mime="text/csv",
