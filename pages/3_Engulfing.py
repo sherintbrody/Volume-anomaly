@@ -261,7 +261,7 @@ if fetch_data:
                 
                 # Format display columns
                 display_df = display_df[[
-                    "Time", "Direction", "Open", "High", "Low", "Close", 
+                    "Time", "Direction", "Open", 
                     "Body_Percentage", "Body_ATR_Multiple", "Signal"
                 ]]
                 
@@ -270,7 +270,7 @@ if fetch_data:
                     "Time": st.column_config.TextColumn(
                         "🕒 Time (IST)",
                         help="Candle opening time in IST",
-                        width="small"
+                        width="medium"
                     ),
                     "Direction": st.column_config.TextColumn(
                         "📊 Dir",
