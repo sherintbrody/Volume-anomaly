@@ -71,8 +71,10 @@ st.markdown("""
 
 .dataframe td {
     text-align: center;
-    padding: 10px 8px;
+    padding: 16px 8px;
+    line-height: 1.6;    /* increase line height */
     border-bottom: 1px solid #f0f0f0;
+    min-height: 40px;    /* enforce minimum row height */
 }
 
 .dataframe tr:hover {
@@ -271,7 +273,7 @@ if fetch_data:
                         "🕒 Time (IST)",
                         help="Candle opening time in IST",
                         width="small",
-                        height="medium"
+                
                     ),
                     "Direction": st.column_config.TextColumn(
                         "📊 Dir",
@@ -352,4 +354,4 @@ if fetch_data:
 
 else:
     # Welcome message
-    st.info("👆 Configure your settings in the sidebar and click 'Fetch Data' to begin analysis.")
+    st.info(" Configure your settings in the sidebar and click 'Fetch Data' to begin analysis.")
