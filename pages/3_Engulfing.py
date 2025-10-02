@@ -193,7 +193,7 @@ with st.sidebar:
     # Timeframe
     timeframe = st.radio(
         "⏰ Timeframe", 
-        ["H4", "D"],
+        ["D", "H4"],
         horizontal=True
     )
     
@@ -217,7 +217,7 @@ with st.sidebar:
     end_time = st.time_input("End Time", value=datetime.strptime("21:00", "%H:%M").time())
     
     # Fetch button
-    fetch_data = st.button("🚀 Fetch Data", type="primary", use_container_width=True)
+    fetch_data = st.button("🚀 Fetch Data", type="primary", width= "stretch")
 
 # Main content
 if fetch_data:
@@ -307,14 +307,14 @@ if fetch_data:
                     "Signal": st.column_config.TextColumn(
                         "🎯 Signal",
                         help="Strength classification based on ATR multiple",
-                        width="medium"
+                        width="small"
                     ),
                 }
                 
                 # Display the enhanced dataframe
                 st.dataframe(
                     display_df,
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True,
                     column_config=column_config,
                     height=600  # Fixed height for better scrolling
