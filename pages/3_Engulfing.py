@@ -270,7 +270,8 @@ if fetch_data:
                     "Time": st.column_config.TextColumn(
                         "🕒 Time (IST)",
                         help="Candle opening time in IST",
-                        width="medium"
+                        width="small",
+                        height="medium"
                     ),
                     "Direction": st.column_config.TextColumn(
                         "📊 Dir",
