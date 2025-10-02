@@ -175,7 +175,7 @@ st.sidebar.toggle(
 
 st.sidebar.slider(
     "📈 Threshold Multiplier",
-    min_value=0.1,
+    min_value=1.0,
     max_value=3.0,
     step=0.1,
     value=1.618,
