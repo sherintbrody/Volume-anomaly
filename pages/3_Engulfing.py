@@ -282,21 +282,13 @@ if fetch_data:
                         format="%.2f",
                         width="small"
                     ),
-                    "High": st.column_config.NumberColumn(
-                        "⬆️ High",
-                        format="%.2f",
-                        width="small"
-                    ),
+                    
                     "Low": st.column_config.NumberColumn(
                         "⬇️ Low",
                         format="%.2f",
                         width="small"
                     ),
-                    "Close": st.column_config.NumberColumn(
-                        "📉 Close",
-                        format="%.2f",
-                        width="small"
-                    ),
+                    
                     "Body_Percentage": st.column_config.NumberColumn(
                         "📏 Body %",
                         help="Body as percentage of total candle range",
@@ -307,7 +299,7 @@ if fetch_data:
                         "📊 ATR Multiple",
                         help="Body size relative to ATR",
                         format="%.2fx",
-                        width="medium"
+                        width="small"
                     ),
                     "Signal": st.column_config.TextColumn(
                         "🎯 Signal",
