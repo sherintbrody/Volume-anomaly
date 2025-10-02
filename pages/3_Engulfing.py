@@ -72,9 +72,9 @@ st.markdown("""
 .dataframe td {
     text-align: center;
     padding: 16px 8px;
-    line-height: 1.6;    /* increase line height */
+    line-height: 1.6;    
     border-bottom: 1px solid #f0f0f0;
-    min-height: 40px;    /* enforce minimum row height */
+    min-height: 40px;    
 }
 
 .dataframe tr:hover {
@@ -299,7 +299,7 @@ if fetch_data:
                         width="small"
                     ),
                     "Body_ATR_Multiple": st.column_config.NumberColumn(
-                        "📊 ATR Multiple",
+                        " ATR",
                         help="Body size relative to ATR",
                         format="%.2fx",
                         width="small"
