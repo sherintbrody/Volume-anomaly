@@ -154,7 +154,7 @@ def process_candle_data(candles_data, atr_value):
     # Signal classification
     df["Signal"] = pd.cut(
         df["Body_ATR_Multiple"],
-        bins=[0, 0.7, 1.3, float('inf')],
+        bins=[0, 0.7, 1.0, float('inf')],
         labels=["Weak", "Neutral", "Strong"]
     )
     
