@@ -428,9 +428,9 @@ if fetch_data:
                     # Display dataframe with custom styling
                     st.dataframe(
                         display_df[["Time", "Open", "High", "Low", "Close", "Body_ATR_Multiple", "Signal"]],
-                        use_container_width=True, 
+                        width='stretch', 
                         hide_index=True,
-                        height=600,
+                        
                         column_config={
                             "Time": st.column_config.TextColumn("🕒 Time (IST)", width="large"),
                             "Open": st.column_config.NumberColumn("📈 Open", format="%.1f"),
