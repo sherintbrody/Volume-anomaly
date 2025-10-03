@@ -298,7 +298,7 @@ st.markdown("""
 with st.sidebar:
     st.markdown("""
     <div class="config-box">
-        <h3>⚙️</h3>
+        <h2>⚙️ Settings</h2>
     </div>
     """, unsafe_allow_html=True)
     
