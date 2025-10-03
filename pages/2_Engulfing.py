@@ -208,6 +208,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# -----------------------------
+# CONSTANTS
+# -----------------------------
 OANDA_API_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
 API_KEY = st.secrets["API_KEY"]
 
@@ -305,7 +308,7 @@ with st.sidebar:
     # Instrument selection
     instrument = st.selectbox(
         "📈 Select Instrument", 
-        ["US30_USD", "XAU_USD", "NAS100_USD" ],
+        ["US30_USD", "XAU_USD", "NAS100_USD"],
         help="Choose your preferred trading instrument"
     )
     
@@ -335,20 +338,24 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-# Date inputs
-st.markdown("**Start Date & Time**")
-col1, col2 = st.columns([1.5, 1])
-with col1:
-    start_date = st.date_input("Date", value=datetime.today(), label_visibility="collapsed")
-with col2:
-    start_time = st.time_input("Time", value=datetime.strptime("09:00", "%H:%M").time(), label_visibility="collapsed")
+    # Date inputs
+    st.markdown("**Start Date & Time**")
+    col1, col2 = st.columns([1.5, 1])
+    with col1:
+        start_date = st.date_input("Date", value=datetime.today(), label_visibility="collapsed")
+    with col2:
+        start_time = st.time_input("Time", value=datetime.strptime("09:00", "%H:%M").time(), label_visibility="collapsed")
 
-st.markdown("**End Date & Time**")
-col3, col4 = st.columns([1.5, 1])
-with col3:
-    end_date = st.date_input("Date", value=datetime.today(), label_visibility="collapsed", key="end_date")
-with col4:
-    end_time = st.time_input("Time", value=datetime.strptime("21:00", "%H:%M").time(), label_visibility="collapsed", key="end_time")
+    st.markdown("**End Date & Time**")
+    col3, col4 = st.columns([1.5, 1])
+    with col3:
+        end_date = st.date_input("Date", value=datetime.today(), label_visibility="collapsed", key="end_date")
+    with col4:
+        end_time = st.time_input("Time", value=datetime.strptime("21:00", "%H:%M").time(), label_visibility="collapsed", key="end_time")
+    
+    # Fetch button
+    fetch_data = st.button("🚀 Fetch Data", type="primary", use_container_width=True)
+
 # Main content
 if fetch_data:
     # Combine datetime
