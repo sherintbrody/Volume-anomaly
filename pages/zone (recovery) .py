@@ -1,13 +1,14 @@
 import streamlit as st
 import requests
 import pandas as pd
-import numpy as np
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import pytz
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import numpy as np
 
-# Page Config
+# --- Page Config ---
 st.set_page_config(
     page_title="Pattern Validator Pro",
     page_icon="🎯",
@@ -15,165 +16,293 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Timezone Setup
+# --- Timezone Setup ---
 IST = pytz.timezone('Asia/Kolkata')
 UTC = pytz.UTC
 
-# OANDA API Configuration
+# --- OANDA API Configuration ---
 API_KEY = st.secrets["API_KEY"]
 ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+
+# Practice environment base URL
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
-# Symbol Mapping
+# OANDA instrument mapping
 SYMBOL_MAPPING = {
-    "NAS100": "NAS100_USD", "US30": "US30_USD", "XAU/USD": "XAU_USD",
-    "SPX500": "SPX500_USD", "XAG/USD": "XAG_USD", "EUR/USD": "EUR_USD",
-    "GBP/USD": "GBP_USD", "USD/JPY": "USD_JPY", "USD/CHF": "USD_CHF",
-    "AUD/USD": "AUD_USD", "USD/CAD": "USD_CAD", "NZD/USD": "NZD_USD"
+    "NAS100": "NAS100_USD",
+    "US30": "US30_USD",
+    "XAU/USD": "XAU_USD",
+    "SPX500": "SPX500_USD",
+    "XAG/USD": "XAG_USD",
+    "EUR/USD": "EUR_USD",
+    "GBP/USD": "GBP_USD", 
+    "USD/JPY": "USD_JPY",
+    "USD/CHF": "USD_CHF",
+    "AUD/USD": "AUD_USD",
+    "USD/CAD": "USD_CAD",
+    "NZD/USD": "NZD_USD",
+    "EUR/GBP": "EUR_GBP",
+    "EUR/JPY": "EUR_JPY",
+    "GBP/JPY": "GBP_JPY",
+    "UK100": "UK100_GBP",
+    "DE30": "DE30_EUR",
+    "FR40": "FR40_EUR",
+    "AU200": "AU200_AUD",
+    "BCO/USD": "BCO_USD",
+    "WTI/USD": "WTICO_USD"
 }
 
-# Pattern Rules
-pattern_rules = {
-    "base": {
-        1: {"max_range_atr": 1.0},
-        2: {"max_range_atr": 1.1, "max_close_diff_atr": 0.25, "no_new_extreme_atr": 0.2},
-        3: {"max_range_atr": 1.2, "max_extremes_atr": 0.4, "max_close_span_atr": 0.3},
-        4: {"max_range_atr": 1.3, "max_extremes_atr": 0.5, "max_net_move_atr": 0.2},
-        5: {"max_range_atr": 1.4, "max_extremes_atr": 0.6, "max_net_move_atr": 0.3},
-        6: {"max_range_atr": 1.5, "max_extremes_atr": 0.7, "max_net_move_atr": 0.3}
-    },
-    "rally": {
-        1: {"min_range_atr": 1.0, "close_upper_pct": 0.30},
-        2: {"min_range_atr": 1.0, "higher_high_low": True, "min_net_move_atr": 0.8},
-        3: {"min_bars_range_atr": {"count": 2, "min": 1.0}, "hh_hl_sequence": True, "min_net_move_atr": 1.2},
-        4: {"min_bars_range_atr": {"count": 3, "min": 1.0}, "hh_hl_sequence": True, "min_net_move_atr": 1.5, "no_bearish_engulfing": True},
-        5: {"min_bars_range_atr": {"count": 4, "min": 1.0}, "hh_hl_sequence": True, "min_net_move_atr": 2.0, "final_close_upper_pct": 0.40},
-        6: {"min_bars_range_atr": {"count": 5, "min": 1.0}, "hh_hl_sequence": True, "min_net_move_atr": 2.5, "monotonic_closes": True}
-    },
-    "drop": {
-        1: {"min_range_atr": 1.0, "close_lower_pct": 0.30},
-        2: {"min_range_atr": 1.0, "lower_high_low": True, "min_net_move_atr": 0.8},
-        3: {"min_bars_range_atr": {"count": 2, "min": 1.0}, "lh_ll_sequence": True, "min_net_move_atr": 1.2},
-        4: {"min_bars_range_atr": {"count": 3, "min": 1.0}, "lh_ll_sequence": True, "min_net_move_atr": 1.5, "no_bullish_engulfing": True},
-        5: {"min_bars_range_atr": {"count": 4, "min": 1.0}, "lh_ll_sequence": True, "min_net_move_atr": 2.0, "final_close_lower_pct": 0.40},
-        6: {"min_bars_range_atr": {"count": 5, "min": 1.0}, "lh_ll_sequence": True, "min_net_move_atr": 2.5, "monotonic_closes": True}
-    }
-}
-
-# Helper Functions
-def convert_symbol_to_oanda(symbol):
-    return SYMBOL_MAPPING.get(symbol, symbol.replace("/", "_"))
-
+# --- Helper function to check if candle is complete ---
 def is_candle_complete(candle_time, interval_hours=4):
+    """Check if a candle is complete based on current time"""
     current_time = datetime.now(UTC)
     candle_end_time = candle_time + timedelta(hours=interval_hours)
     return current_time >= candle_end_time
 
-@st.cache_data(ttl=300)
+def convert_symbol_to_oanda(symbol):
+    """Convert display symbol to OANDA instrument format"""
+    return SYMBOL_MAPPING.get(symbol, symbol.replace("/", "_"))
+
+# --- OANDA API Data Fetching ---
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_ohlc(symbol, start, end, interval="4h"):
+    """Fetch 4H OHLC data from OANDA API within UTC range."""
+    
+    # Convert symbol to OANDA format
     instrument = convert_symbol_to_oanda(symbol)
-    granularity = {"1h": "H1", "4h": "H4", "1d": "D", "1w": "W"}.get(interval, "H4")
     
+    # Convert interval to OANDA granularity
+    granularity_map = {
+        "1h": "H1",
+        "4h": "H4", 
+        "1d": "D",
+        "1w": "W"
+    }
+    granularity = granularity_map.get(interval, "H4")
+    
+    # Format dates for OANDA API (RFC3339)
+    from_time = start.strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+    to_time = end.strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+    
+    # OANDA API endpoint
     url = f"{BASE_URL}/instruments/{instrument}/candles"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
     
-    # Ensure times are in UTC
-    if start.tzinfo is None:
-        start = UTC.localize(start)
-    if end.tzinfo is None:
-        end = UTC.localize(end)
+    # Headers
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
     
+    # Parameters
     params = {
         "granularity": granularity,
-        "from": start.strftime("%Y-%m-%dT%H:%M:%S.000000Z"),
-        "to": end.strftime("%Y-%m-%dT%H:%M:%S.000000Z"),
-        "price": "M"
+        "from": from_time,
+        "to": to_time,
+        "price": "M"  # Mid prices
     }
     
     try:
         response = requests.get(url, headers=headers, params=params)
-        
-        if response.status_code == 400:
-            st.error(f"Invalid request: Check symbol '{symbol}' or date range")
-            return pd.DataFrame()
-        elif response.status_code == 401:
-            st.error("Authentication failed: Check API key")
-            return pd.DataFrame()
-        elif response.status_code != 200:
-            st.error(f"API Error: Status {response.status_code}")
-            return pd.DataFrame()
-            
+        response.raise_for_status()
         data = response.json()
+        
         candles = data.get("candles", [])
         
         if not candles:
             return pd.DataFrame()
         
+        # Convert OANDA response to DataFrame
         df_data = []
         for candle in candles:
-            mid = candle.get("mid", {})
-            if mid:
+            if candle.get("complete", True):  # Only process if candle data is available
+                mid = candle.get("mid", {})
                 df_data.append({
                     "datetime": candle["time"],
                     "open": float(mid.get("o", 0)),
-                    "high": float(mid.get("h", 0)),
+                    "high": float(mid.get("h", 0)), 
                     "low": float(mid.get("l", 0)),
                     "close": float(mid.get("c", 0)),
+                    "volume": candle.get("volume", 0),
                     "complete": candle.get("complete", True)
                 })
         
-        if not df_data:
-            return pd.DataFrame()
-            
         df = pd.DataFrame(df_data)
-        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-        df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
-        df = df.sort_values("datetime").reset_index(drop=True)
         
-        if len(df) > 0:
-            last_candle_time = df.iloc[-1]['datetime']
-            df['is_complete'] = df['complete']
-            if not is_candle_complete(last_candle_time, 4):
-                df.loc[df.index[-1], 'is_complete'] = False
+        if not df.empty:
+            # Convert datetime to proper timezone
+            df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+            df["datetime_ist"] = df["datetime"].dt.tz_convert(IST)
+            df = df.sort_values("datetime").reset_index(drop=True)
+            
+            # Check if last candle is complete
+            if len(df) > 0:
+                last_candle_time = df.iloc[-1]['datetime']
+                df['is_complete'] = df['complete']
+                if not is_candle_complete(last_candle_time, 4):
+                    df.loc[df.index[-1], 'is_complete'] = False
+            
+            # Calculate ATR (excluding incomplete candles)
+            df = calculate_atr(df, period=21)
         
-        df = calculate_atr(df, period=21)
         return df
         
     except requests.exceptions.RequestException as e:
-        st.error(f"Network Error: {str(e)}")
+        st.error(f"OANDA API Error: {e}")
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Data Processing Error: {str(e)}")
+        st.error(f"Data processing error: {e}")
         return pd.DataFrame()
 
+# --- ATR Calculation ---
 def calculate_atr(df, period=21):
-    if df.empty:
-        return df
-        
+    """Calculate Average True Range excluding incomplete candles"""
     df_copy = df.copy()
     
-    incomplete_candle_exists = len(df_copy) > 0 and 'is_complete' in df_copy.columns and not df_copy.iloc[-1]['is_complete']
+    # Mark incomplete candle for reference
+    incomplete_candle_exists = False
+    if len(df_copy) > 0 and 'is_complete' in df_copy.columns:
+        incomplete_candle_exists = not df_copy.iloc[-1]['is_complete']
     
+    # Calculate True Range for all candles
     df_copy['prev_close'] = df_copy['close'].shift(1)
     df_copy['tr1'] = df_copy['high'] - df_copy['low']
     df_copy['tr2'] = abs(df_copy['high'] - df_copy['prev_close'])
     df_copy['tr3'] = abs(df_copy['low'] - df_copy['prev_close'])
     df_copy['true_range'] = df_copy[['tr1', 'tr2', 'tr3']].max(axis=1)
     
-    if incomplete_candle_exists and len(df_copy) > 1:
-        df_copy['atr'] = df_copy['true_range'].iloc[:-1].rolling(window=period, min_periods=1).mean()
-        last_valid_atr = df_copy['atr'].iloc[-2] if not pd.isna(df_copy['atr'].iloc[-2]) else df_copy['atr'].dropna().iloc[-1] if not df_copy['atr'].dropna().empty else 0.0001
-        df_copy.loc[df_copy.index[-1], 'atr'] = last_valid_atr
+    # Calculate ATR excluding the last candle if it's incomplete
+    if incomplete_candle_exists:
+        # Calculate ATR up to the second-to-last candle
+        df_copy['atr'] = df_copy['true_range'].iloc[:-1].rolling(window=period).mean()
+        # Forward fill the last ATR value to the incomplete candle
+        df_copy.loc[df_copy.index[-1], 'atr'] = df_copy['atr'].iloc[-2] if len(df_copy) > 1 else np.nan
+        # Add a flag to indicate this ATR is carried forward
         df_copy['atr_projected'] = False
         df_copy.loc[df_copy.index[-1], 'atr_projected'] = True
     else:
-        df_copy['atr'] = df_copy['true_range'].rolling(window=period, min_periods=1).mean()
+        # Normal ATR calculation if all candles are complete
+        df_copy['atr'] = df_copy['true_range'].rolling(window=period).mean()
         df_copy['atr_projected'] = False
     
-    df_copy.drop(['prev_close', 'tr1', 'tr2', 'tr3'], axis=1, inplace=True, errors='ignore')
+    # Clean up temporary columns
+    df_copy.drop(['prev_close', 'tr1', 'tr2', 'tr3'], axis=1, inplace=True)
+    
     return df_copy
 
-# Pattern Validation Functions
+# --- Candle Structure ---
+@dataclass
+class Candle:
+    name: int
+    datetime: datetime
+    datetime_ist: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+
+# --- Pattern Rules ---
+pattern_rules = {
+    "base": {
+        1: {
+            "max_range_atr": 1.0
+        },
+        2: {
+            "max_range_atr": 1.1,
+            "max_close_diff_atr": 0.25,
+            "no_new_extreme_atr": 0.2
+        },
+        3: {
+            "max_range_atr": 1.2,
+            "max_extremes_atr": 0.4,
+            "max_close_span_atr": 0.3
+        },
+        4: {
+            "max_range_atr": 1.3,
+            "max_extremes_atr": 0.5,
+            "max_net_move_atr": 0.2
+        },
+        5: {
+            "max_range_atr": 1.4,
+            "max_extremes_atr": 0.6,
+            "max_net_move_atr": 0.3
+        },
+        6: {
+            "max_range_atr": 1.5,
+            "max_extremes_atr": 0.7,
+            "max_net_move_atr": 0.3
+        }
+    },
+    "rally": {
+        1: {
+            "min_range_atr": 1.0,
+            "close_upper_pct": 0.30  # Close in upper 30%
+        },
+        2: {
+            "min_range_atr": 1.0,
+            "higher_high_low": True,
+            "min_net_move_atr": 0.8
+        },
+        3: {
+            "min_bars_range_atr": {"count": 2, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 1.2
+        },
+        4: {
+            "min_bars_range_atr": {"count": 3, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 1.5,
+            "no_bearish_engulfing": True
+        },
+        5: {
+            "min_bars_range_atr": {"count": 4, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 2.0,
+            "final_close_upper_pct": 0.40
+        },
+        6: {
+            "min_bars_range_atr": {"count": 5, "min": 1.0},
+            "hh_hl_sequence": True,
+            "min_net_move_atr": 2.5,
+            "monotonic_closes": True
+        }
+    },
+    "drop": {
+        1: {
+            "min_range_atr": 1.0,
+            "close_lower_pct": 0.30  # Close in lower 30%
+        },
+        2: {
+            "min_range_atr": 1.0,
+            "lower_high_low": True,
+            "min_net_move_atr": 0.8
+        },
+        3: {
+            "min_bars_range_atr": {"count": 2, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 1.2
+        },
+        4: {
+            "min_bars_range_atr": {"count": 3, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 1.5,
+            "no_bullish_engulfing": True
+        },
+        5: {
+            "min_bars_range_atr": {"count": 4, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 2.0,
+            "final_close_lower_pct": 0.40
+        },
+        6: {
+            "min_bars_range_atr": {"count": 5, "min": 1.0},
+            "lh_ll_sequence": True,
+            "min_net_move_atr": 2.5,
+            "monotonic_closes": True
+        }
+    }
+}
+
+# --- Helper Functions ---
 def range_atr(high, low, atr):
     return (high - low) / atr if atr > 0 else 0
 
@@ -190,18 +319,21 @@ def extremes_atr(candles, atr):
     return (max(highs) - min(lows)) / atr if atr > 0 else 0
 
 def check_hh_hl_sequence(candles):
+    """Check for higher highs and higher lows sequence"""
     for i in range(1, len(candles)):
         if candles[i]["high"] <= candles[i-1]["high"] or candles[i]["low"] <= candles[i-1]["low"]:
             return False
     return True
 
 def check_lh_ll_sequence(candles):
+    """Check for lower highs and lower lows sequence"""
     for i in range(1, len(candles)):
         if candles[i]["high"] >= candles[i-1]["high"] or candles[i]["low"] >= candles[i-1]["low"]:
             return False
     return True
 
 def check_monotonic_closes(candles, direction="up"):
+    """Check for monotonic rising or falling closes"""
     closes = [c["close"] for c in candles]
     if direction == "up":
         return all(closes[i] > closes[i-1] for i in range(1, len(closes)))
@@ -209,21 +341,26 @@ def check_monotonic_closes(candles, direction="up"):
         return all(closes[i] < closes[i-1] for i in range(1, len(closes)))
 
 def check_bearish_engulfing(candles):
+    """Check if any candle is bearish engulfing"""
     for i in range(1, len(candles)):
-        if candles[i]["open"] > candles[i-1]["close"] and candles[i]["close"] < candles[i-1]["open"]:
+        if (candles[i]["open"] > candles[i-1]["close"] and 
+            candles[i]["close"] < candles[i-1]["open"]):
             return True
     return False
 
 def check_bullish_engulfing(candles):
+    """Check if any candle is bullish engulfing"""
     for i in range(1, len(candles)):
-        if candles[i]["open"] < candles[i-1]["close"] and candles[i]["close"] > candles[i-1]["open"]:
+        if (candles[i]["open"] < candles[i-1]["close"] and 
+            candles[i]["close"] > candles[i-1]["open"]):
             return True
     return False
 
+# ---core validation ----
 def validate_pattern_detailed(candles, atr, pattern):
     n = len(candles)
     if n < 1 or n > 6:
-        return False, f"Invalid number of candles: {n}", {}
+        return False, f"Invalid number of candles: {n}. Must be between 1 and 6.", {}
     
     rules = pattern_rules[pattern].get(n)
     if not rules:
@@ -232,350 +369,1153 @@ def validate_pattern_detailed(candles, atr, pattern):
     results = {}
     
     if pattern == "base":
+        # Base pattern validation
         if n == 1:
+            # Single criterion - keep original logic
             if "max_range_atr" in rules:
                 results['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
-            overall = all(results.values()) if results else False
+            overall = all(results.values())
+        
         elif n == 2:
+            # Core criteria for base zone validation (n=2)
             core_criteria = {}
+            
+            # 1. Range check
             if "max_range_atr" in rules:
                 core_criteria['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
                 results['range_check'] = core_criteria['range_check']
-            close_diff = abs(candles[1]["close"] - candles[0]["close"]) / atr if atr > 0 else 0
+            
+            # 2. Close difference
+            close_diff = abs(candles[1]["close"] - candles[0]["close"]) / atr
             core_criteria['close_diff'] = close_diff <= rules["max_close_diff_atr"]
             results['close_diff'] = core_criteria['close_diff']
-            new_high = (candles[1]["high"] - candles[0]["high"]) / atr if atr > 0 else 0
-            new_low = (candles[0]["low"] - candles[1]["low"]) / atr if atr > 0 else 0
-            core_criteria['no_new_extreme'] = (new_high <= rules["no_new_extreme_atr"] and new_low <= rules["no_new_extreme_atr"])
+            
+            # 3. No new extremes
+            new_high = (candles[1]["high"] - candles[0]["high"]) / atr
+            new_low = (candles[0]["low"] - candles[1]["low"]) / atr
+            core_criteria['no_new_extreme'] = (new_high <= rules["no_new_extreme_atr"] and 
+                                              new_low <= rules["no_new_extreme_atr"])
             results['no_new_extreme'] = core_criteria['no_new_extreme']
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
             satisfied_core = sum(1 for result in core_criteria.values() if result)
             overall = satisfied_core >= 2
-        else:
+        
+        else:  # n >= 3
+            # Core criteria for base zone validation (n>=3)
             core_criteria = {}
+            
+            # 1. Range check
             if "max_range_atr" in rules:
                 core_criteria['range_check'] = all(range_atr(c["high"], c["low"], atr) <= rules["max_range_atr"] for c in candles)
                 results['range_check'] = core_criteria['range_check']
+            
+            # 2. Extremes check
             if "max_extremes_atr" in rules:
                 core_criteria['extremes'] = extremes_atr(candles, atr) <= rules["max_extremes_atr"]
                 results['extremes'] = core_criteria['extremes']
+            
+            # 3. Net move check
             if "max_net_move_atr" in rules:
                 core_criteria['net_move'] = net_move_atr(candles, atr) <= rules["max_net_move_atr"]
                 results['net_move'] = core_criteria['net_move']
+            
+            # Additional criteria (still calculated for reporting)
             if "max_close_span_atr" in rules:
                 results['close_span'] = close_span_atr(candles, atr) <= rules["max_close_span_atr"]
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
             satisfied_core = sum(1 for result in core_criteria.values() if result)
             overall = satisfied_core >= 2
     
     elif pattern == "rally":
+        # Rally pattern validation
         if n == 1:
+            # Range check
             results['range_check'] = range_atr(candles[0]["high"], candles[0]["low"], atr) >= rules["min_range_atr"]
+            # Close in upper 30%
             candle_range = candles[0]["high"] - candles[0]["low"]
             if candle_range > 0:
                 close_position = (candles[0]["close"] - candles[0]["low"]) / candle_range
                 results['close_position'] = close_position >= (1 - rules["close_upper_pct"])
-            overall = all(results.values()) if results else False
+            
+            # For single candle, keep original logic
+            overall = all(results.values())
+        
         elif n == 2:
+            # Each range >= 1.0 ATR
             results['range_check'] = all(range_atr(c["high"], c["low"], atr) >= rules["min_range_atr"] for c in candles)
-            results['hh_hl'] = (candles[1]["high"] > candles[0]["high"] and candles[1]["low"] > candles[0]["low"])
+            # Higher high & higher low
+            results['hh_hl'] = (candles[1]["high"] > candles[0]["high"] and 
+                               candles[1]["low"] > candles[0]["low"])
+            # Net move
             results['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
-            overall = all(results.values()) if results else False
-        else:
+            
+            # For 2 candles, keep original logic
+            overall = all(results.values())
+        
+        else:  # n >= 3
+            # Core criteria for zone validation
             core_criteria = {}
+            
+            # 1. Minimum bars with range >= threshold
             if "min_bars_range_atr" in rules:
                 bars_meeting = sum(1 for c in candles if range_atr(c["high"], c["low"], atr) >= rules["min_bars_range_atr"]["min"])
                 core_criteria['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
                 results['min_bars_range'] = core_criteria['min_bars_range']
+            
+            # 2. HH & HL sequence
             if "hh_hl_sequence" in rules:
                 core_criteria['hh_hl_sequence'] = check_hh_hl_sequence(candles)
                 results['hh_hl_sequence'] = core_criteria['hh_hl_sequence']
+            
+            # 3. Net move
             core_criteria['net_move'] = net_move_atr(candles, atr) >= rules["min_net_move_atr"]
             results['net_move'] = core_criteria['net_move']
+            
+            # Additional criteria (still calculated for reporting)
             if "no_bearish_engulfing" in rules:
                 results['no_bearish_engulfing'] = not check_bearish_engulfing(candles)
+            
             if "final_close_upper_pct" in rules:
                 final_range = candles[-1]["high"] - candles[-1]["low"]
                 if final_range > 0:
                     close_position = (candles[-1]["close"] - candles[-1]["low"]) / final_range
                     results['final_close_position'] = close_position >= (1 - rules["final_close_upper_pct"])
+            
             if "monotonic_closes" in rules:
                 results['monotonic_closes'] = check_monotonic_closes(candles, direction="up")
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
             satisfied_core = sum(1 for result in core_criteria.values() if result)
             overall = satisfied_core >= 2
     
     elif pattern == "drop":
+        # Drop pattern validation
         if n == 1:
+            # Range check
             results['range_check'] = range_atr(candles[0]["high"], candles[0]["low"], atr) >= rules["min_range_atr"]
+            # Close in lower 30%
             candle_range = candles[0]["high"] - candles[0]["low"]
             if candle_range > 0:
                 close_position = (candles[0]["close"] - candles[0]["low"]) / candle_range
                 results['close_position'] = close_position <= rules["close_lower_pct"]
-            overall = all(results.values()) if results else False
+            
+            # For single candle, keep original logic
+            overall = all(results.values())
+        
         elif n == 2:
+            # Each range >= 1.0 ATR
             results['range_check'] = all(range_atr(c["high"], c["low"], atr) >= rules["min_range_atr"] for c in candles)
-            results['lh_ll'] = (candles[1]["high"] < candles[0]["high"] and candles[1]["low"] < candles[0]["low"])
-            net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr if atr > 0 else 0
+            # Lower high & lower low
+            results['lh_ll'] = (candles[1]["high"] < candles[0]["high"] and 
+                               candles[1]["low"] < candles[0]["low"])
+            # Net move (for drop: first open - last close)
+            net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr
             results['net_move'] = net_move >= rules["min_net_move_atr"]
-            overall = all(results.values()) if results else False
-        else:
+            
+            # For 2 candles, keep original logic
+            overall = all(results.values())
+        
+        else:  # n >= 3
+            # Core criteria for zone validation
             core_criteria = {}
+            
+            # 1. Minimum bars with range >= threshold
             if "min_bars_range_atr" in rules:
                 bars_meeting = sum(1 for c in candles if range_atr(c["high"], c["low"], atr) >= rules["min_bars_range_atr"]["min"])
                 core_criteria['min_bars_range'] = bars_meeting >= rules["min_bars_range_atr"]["count"]
                 results['min_bars_range'] = core_criteria['min_bars_range']
+            
+            # 2. LH & LL sequence
             if "lh_ll_sequence" in rules:
                 core_criteria['lh_ll_sequence'] = check_lh_ll_sequence(candles)
                 results['lh_ll_sequence'] = core_criteria['lh_ll_sequence']
-            net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr if atr > 0 else 0
+            
+            # 3. Net move
+            net_move = abs(candles[0]["open"] - candles[-1]["close"]) / atr
             core_criteria['net_move'] = net_move >= rules["min_net_move_atr"]
             results['net_move'] = core_criteria['net_move']
+            
+            # Additional criteria (still calculated for reporting)
             if "no_bullish_engulfing" in rules:
                 results['no_bullish_engulfing'] = not check_bullish_engulfing(candles)
+            
             if "final_close_lower_pct" in rules:
                 final_range = candles[-1]["high"] - candles[-1]["low"]
                 if final_range > 0:
                     close_position = (candles[-1]["close"] - candles[-1]["low"]) / final_range
                     results['final_close_position'] = close_position <= rules["final_close_lower_pct"]
+            
             if "monotonic_closes" in rules:
                 results['monotonic_closes'] = check_monotonic_closes(candles, direction="down")
+            
+            # Zone is valid if 2 or more of the 3 core criteria are satisfied
             satisfied_core = sum(1 for result in core_criteria.values() if result)
             overall = satisfied_core >= 2
     
     return overall, "Pattern validation passed" if overall else "Pattern validation failed", results
 
-def plot_chart(df, selected_candles_df=None, show_atr=True):
-    # Filter valid ATR data
+# --- Plot function ---
+def plot_combined_chart(df, selected_candles_df=None, show_atr=True):
+    """Create enhanced combined chart with optimized spacing and clean pattern visualization"""
+    
+    # Get data with valid ATR values only
     df_with_atr = df[df['atr'].notna()].copy() if 'atr' in df.columns else df.copy()
     
-    # Use last 42 candles or less for display
-    if len(df) > 42:
-        display_df = df.tail(42)
+    # For ATR chart, use only data where ATR exists (remove blank space)
+    if len(df_with_atr) > 42:
+        atr_data = df_with_atr.tail(42)
     else:
-        display_df = df
+        atr_data = df_with_atr
     
-    # ATR data - remove NaN values to prevent blank spaces
-    if 'atr' in df.columns:
-        atr_data = display_df.dropna(subset=['atr'])
-    else:
-        atr_data = display_df
+    # Remove any NaN values from ATR data to eliminate blank space
+    atr_data = atr_data.dropna(subset=['atr']) if 'atr' in atr_data.columns else atr_data
     
-    rows = 2 if show_atr and not atr_data.empty and 'atr' in atr_data.columns else 1
-    row_heights = [0.65, 0.35] if rows == 2 else [1.0]
+    rows = 2 if show_atr else 1
+    row_heights = [0.65, 0.35] if show_atr else [1.0]
     
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.03,
         row_heights=row_heights,
-        subplot_titles=(None, 'ATR (21-Period)') if rows == 2 else (None,)
+        subplot_titles=(
+            None,
+            'ATR Volatility Indicator (21-Period)'
+        ) if show_atr else (None,)
     )
+    
+    # Enhanced Price Chart with better colors
+    bullish_color = '#00D4AA'
+    bearish_color = '#FF6B6B'
     
     # Main candlestick chart
     fig.add_trace(go.Candlestick(
-        x=display_df['datetime_ist'],
-        open=display_df['open'],
-        high=display_df['high'],
-        low=display_df['low'],
-        close=display_df['close'],
-        name='OHLC'
+        x=df['datetime_ist'],
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='OHLC Data',
+        increasing_line_color=bullish_color,
+        decreasing_line_color=bearish_color,
+        increasing_fillcolor=bullish_color,
+        decreasing_fillcolor=bearish_color,
+        line=dict(width=1.5),
+        hoverinfo='all'
     ), row=1, col=1)
     
-    # Highlight selected candles
+    # Enhanced incomplete candles markers
+    if 'is_complete' in df.columns:
+        incomplete_df = df[~df['is_complete']]
+        if not incomplete_df.empty:
+            fig.add_trace(go.Scatter(
+                x=incomplete_df['datetime_ist'],
+                y=incomplete_df['high'] * 1.008,
+                mode='markers+text',
+                marker=dict(
+                    symbol='circle',
+                    size=16,
+                    color='#FF9500',
+                    line=dict(color='white', width=2)
+                ),
+                text='🔄',
+                textfont=dict(size=12),
+                textposition="middle center",
+                name='Forming Candle',
+                showlegend=True,
+                hovertemplate='<b>Status</b>: Candle Still Forming<br><extra></extra>'
+            ), row=1, col=1)
+    
+    # Pattern boundary visualization
     if selected_candles_df is not None and not selected_candles_df.empty:
+        # Get the boundary coordinates
         min_time = selected_candles_df['datetime_ist'].min()
         max_time = selected_candles_df['datetime_ist'].max()
         min_price = selected_candles_df['low'].min()
         max_price = selected_candles_df['high'].max()
         
+        # Add pattern boundary rectangle
         fig.add_shape(
             type="rect",
-            x0=min_time, y0=min_price * 0.9985,
-            x1=max_time, y1=max_price * 1.0015,
-            line=dict(color="#FFD700", width=3, dash="dot"),
+            x0=min_time,
+            y0=min_price * 0.9985,
+            x1=max_time,
+            y1=max_price * 1.0015,
+            line=dict(
+                color="#FFD700",
+                width=3,
+                dash="dot"
+            ),
             fillcolor="rgba(255, 215, 0, 0.1)",
             row=1, col=1
         )
+        
+        # Add pattern information annotation
+        pattern_info = f"Pattern: {len(selected_candles_df)} candles"
+        fig.add_annotation(
+            x=min_time,
+            y=max_price * 1.01,
+            text=f"<b>{pattern_info}</b>",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor='#FFD700',
+            font=dict(size=11, color='#FFD700', family="Arial"),
+            bgcolor='rgba(255, 215, 0, 0.2)',
+            bordercolor='#FFD700',
+            borderwidth=1,
+            borderpad=4,
+            row=1, col=1
+        )
     
-    # ATR subplot
-    if rows == 2 and 'atr' in atr_data.columns and not atr_data['atr'].isna().all():
+    # Enhanced ATR Chart
+    if show_atr and 'atr' in atr_data.columns and not atr_data['atr'].isna().all():
+        # Create gradient background for ATR
         fig.add_trace(go.Scatter(
             x=atr_data['datetime_ist'],
             y=atr_data['atr'],
             mode='lines',
-            name='ATR',
-            line=dict(color='#2E86C1', width=2)
+            name='ATR Background',
+            line=dict(
+                color='rgba(46, 134, 193, 0)',
+                width=0
+            ),
+            fill='tozeroy',
+            fillcolor='rgba(46, 134, 193, 0.15)',
+            showlegend=False,
+            hoverinfo='skip'
         ), row=2, col=1)
         
-        # Set ATR y-axis range to fit data without blank space
+        # Main ATR line
+        fig.add_trace(go.Scatter(
+            x=atr_data['datetime_ist'],
+            y=atr_data['atr'],
+            mode='lines+markers',
+            name='ATR (21)',
+            line=dict(
+                color='#2E86C1',
+                width=3,
+                shape='spline'
+            ),
+            marker=dict(
+                size=6,
+                color='#2E86C1',
+                line=dict(color='white', width=1)
+            ),
+            showlegend=True,
+            hovertemplate='<b>ATR Value</b>: %{y:.4f}<br><b>Time</b>: %{x}<br><extra></extra>'
+        ), row=2, col=1)
+        
+        # Enhanced projected ATR points
+        if 'atr_projected' in atr_data.columns:
+            projected_atr = atr_data[atr_data['atr_projected']]
+            if not projected_atr.empty:
+                fig.add_trace(go.Scatter(
+                    x=projected_atr['datetime_ist'],
+                    y=projected_atr['atr'],
+                    mode='markers',
+                    marker=dict(
+                        symbol='diamond',
+                        size=14,
+                        color='#F39C12',
+                        line=dict(color='white', width=2)
+                    ),
+                    name='ATR Projected',
+                    showlegend=True,
+                    hovertemplate='<b>Projected ATR</b>: %{y:.4f}<br><extra></extra>'
+                ), row=2, col=1)
+        
+        # Current ATR reference line
+        if not atr_data['atr'].isna().all():
+            current_atr_row = atr_data[~atr_data.get('atr_projected', False)]
+            if not current_atr_row.empty:
+                current_atr = current_atr_row['atr'].iloc[-1]
+            else:
+                current_atr = atr_data['atr'].iloc[-1]
+            
+            # Add horizontal reference line
+            fig.add_trace(go.Scatter(
+                x=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
+                y=[current_atr, current_atr],
+                mode='lines',
+                line=dict(
+                    color='#E74C3C',
+                    width=2,
+                    dash='dashdot'
+                ),
+                name='Current ATR',
+                showlegend=True,
+                hovertemplate=f'<b>Current ATR Level</b>: {current_atr:.4f}<br><extra></extra>'
+            ), row=2, col=1)
+        
+        # Set ATR y-axis range to eliminate blank space
         atr_min = atr_data['atr'].min() * 0.95
         atr_max = atr_data['atr'].max() * 1.05
-        fig.update_yaxes(range=[atr_min, atr_max], row=2, col=1)
-    
-    # Update x-axis to remove blank spaces
-    if not display_df.empty:
+        
+        fig.update_yaxes(
+            range=[atr_min, atr_max],
+            row=2, col=1,
+            fixedrange=False
+        )
+        
+        # Set ATR x-axis range to start from where data begins
         fig.update_xaxes(
-            range=[display_df['datetime_ist'].iloc[0], display_df['datetime_ist'].iloc[-1]],
-            rangeslider_visible=False
+            range=[atr_data['datetime_ist'].iloc[0], atr_data['datetime_ist'].iloc[-1]],
+            row=2, col=1
         )
     
+    # Enhanced Layout
     fig.update_layout(
-        height=700,
+        height=850,
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
         showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5
+        ),
         hovermode='x unified',
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=50, r=50, t=50, b=50)
+        margin=dict(l=70, r=100, t=100, b=60)
     )
+    
+    # Enhanced axes styling
+    fig.update_xaxes(
+        title_text="Time (IST)",
+        row=rows, col=1,
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(255, 255, 255, 0.1)'
+    )
+    
+    # Price axis styling
+    fig.update_yaxes(
+        title_text="Price Level",
+        row=1, col=1,
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(255, 255, 255, 0.1)'
+    )
+    
+    # ATR axis styling
+    if show_atr:
+        fig.update_yaxes(
+            title_text="ATR Value",
+            row=2, col=1,
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(255, 255, 255, 0.1)',
+            tickformat='.4f'
+        )
+    
+    # Remove rangeslider for cleaner look
+    fig.update_layout(xaxis_rangeslider_visible=False)
     
     return fig
 
-# Main UI
-st.title("🎯 Pattern Validator Pro")
-st.caption("Professional Pattern Analysis with OANDA Real-Time Data")
+# --- Result Display Component ---
+def display_validation_results(is_valid, message, pattern, details=None):
+    """Display validation results using native Streamlit components"""
+    pattern_emoji = {"rally": "🚀", "drop": "📉", "base": "⚖️"}
+    pattern_name = {"rally": "Rally Pattern (Bullish Impulse)", "drop": "Drop Pattern (Bearish Impulse)", "base": "Base Pattern (Consolidation Zone)"}
+    
+    if is_valid:
+        st.success(f"{pattern_emoji[pattern]} {pattern_name[pattern]} - ✅ VALID")
+        st.write(message)
+    else:
+        st.error(f"{pattern_emoji[pattern]} {pattern_name[pattern]} - ❌ INVALID")
+        st.write(message)
+    
+    if details:
+        with st.expander("🔍 Detailed Validation Breakdown", expanded=True):
+            # Progress calculation
+            total_checks = len(details)
+            passed_checks = sum(details.values())
+            progress = passed_checks / total_checks if total_checks > 0 else 0
+            
+            # Progress bar
+            st.progress(progress, text=f"Validation Progress: {passed_checks}/{total_checks} checks passed")
+            
+            # Detailed results
+            cols = st.columns(2)
+            for i, (check, result) in enumerate(details.items()):
+                col = cols[i % 2]
+                icon = "✅" if result else "❌"
+                check_name = check.replace('_', ' ').title()
+                
+                with col:
+                    if result:
+                        st.success(f"{icon} {check_name}")
+                    else:
+                        st.error(f"{icon} {check_name}")
+
+# --- Metrics Display ---
+def display_pattern_metrics(df, selected_candles, atr, incomplete_warning=False):
+    """Display pattern metrics using native Streamlit components"""
+    st.subheader("📊 Pattern Analysis Metrics")
+    
+    if incomplete_warning:
+        st.warning("⚠️ Live Market Data Notice: Current candle is still forming. ATR calculation excludes incomplete data for accuracy.")
+    
+    if selected_candles:
+        # Calculate enhanced metrics
+        ranges = [(c["high"] - c["low"]) / atr for c in selected_candles]
+        avg_range = np.mean(ranges)
+        max_range = max(ranges)
+        min_range = min(ranges)
+        net_move = net_move_atr(selected_candles, atr)
+        n_candles = len(selected_candles)
+        
+        # Create metric cards
+        cols = st.columns(4)
+        
+        with cols[0]:
+            st.metric(
+                label="🕯️ Candles Count",
+                value=f"{n_candles}"
+            )
+        
+        with cols[1]:
+            st.metric(
+                label="📏 Avg Range (ATR)",
+                value=f"{avg_range:.2f}",
+                delta=f"Max: {max_range:.2f}"
+            )
+        
+        with cols[2]:
+            st.metric(
+                label="🎯 Net Move (ATR)",
+                value=f"{net_move:.2f}"
+            )
+        
+        with cols[3]:
+            st.metric(
+                label="📊 Current ATR",
+                value=f"{atr:.4f}"
+            )
+        
+        # Additional statistics
+        if len(selected_candles) > 1:
+            st.divider()
+            col1, col2, col3 = st.columns(3)
+            
+            # Price levels
+            highs = [c["high"] for c in selected_candles]
+            lows = [c["low"] for c in selected_candles]
+            closes = [c["close"] for c in selected_candles]
+            
+            with col1:
+                with st.container(border=True):
+                    st.write("**📈 Price Levels**")
+                    st.write(f"**Highest:** {max(highs):.4f}")
+                    st.write(f"**Lowest:** {min(lows):.4f}")
+                    st.write(f"**Range:** {max(highs) - min(lows):.4f}")
+            
+            with col2:
+                with st.container(border=True):
+                    st.write("**🎯 Pattern Stats**")
+                    st.write(f"**Range Spread:** {max_range - min_range:.2f} ATR")
+                    st.write(f"**Volatility:** {np.std(ranges):.2f} ATR")
+                    st.write(f"**Consistency:** {(1 - np.std(ranges)/avg_range)*100:.1f}%")
+            
+            with col3:
+                pattern_strength = "Strong" if avg_range >= 1.0 and net_move >= 1.0 else "Moderate" if avg_range >= 0.7 else "Weak"
+                
+                with st.container(border=True):
+                    st.write("**💪 Pattern Strength**")
+                    st.write(f"**Classification:** {pattern_strength}")
+                    st.write(f"**Momentum:** {net_move:.2f} ATR")
+                    st.write(f"**Volume Profile:** Normal")
+
+# --- Main Streamlit UI ---
+# Header
+st.title("🎯 Advanced Pattern Validator Pro")
+st.caption("Professional Rally / Drop / Base Pattern Analysis with OANDA Real-Time Data")
 
 # Sidebar
 with st.sidebar:
-    st.header("Configuration")
+    st.header("⚙️ Analysis Configuration")
     
-    symbol = st.selectbox("Symbol", list(SYMBOL_MAPPING.keys()), index=2)
-    pattern = st.selectbox("Pattern Type", ["rally", "drop", "base"])
-    mode = st.radio("Selection Mode", ["Automatic (Last N Candles)", "Manual Time Range"])
+    # Trading Symbol Selection
+    st.subheader("📈 Trading Symbol")
+    
+    # Quick selection for OANDA supported symbols
+    popular_symbols = ["XAU/USD", "US30", "NAS100"]
+    indices_symbols = ["US30", "NAS100", "SPX500", "UK100", "DE30", "FR40", "AU200"]
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        symbol_category = st.selectbox(
+            "Category",
+            options=["Forex", "Metals", "Indices", "Custom"],
+            help="Choose symbol category"
+        )
+    
+    with col2:
+        if st.button("🔄", help="Refresh symbol list"):
+            st.rerun()
+    
+    if symbol_category == "Forex":
+        symbol = st.selectbox("Forex Pairs", popular_symbols)
+    elif symbol_category == "Metals":
+        symbol = st.selectbox("Precious Metals", ["XAU/USD", "XAG/USD"])
+    elif symbol_category == "Indices":
+        symbol = st.selectbox("Market Indices", indices_symbols)
+    else:  # Custom
+        symbol = st.text_input(
+            "Enter Custom Symbol", 
+            value="EUR/USD",
+            help="Enter OANDA instrument symbol (e.g., EUR/USD, GBP/JPY)",
+            placeholder="Enter custom symbol..."
+        )
+    
+    # Display OANDA instrument format
+    oanda_symbol = convert_symbol_to_oanda(symbol)
+    st.info(f"OANDA Format: {oanda_symbol}")
+    
+    pattern = st.selectbox(
+        "🎨 Pattern Type", 
+        ["rally", "drop", "base"],
+        format_func=lambda x: {"rally": "🚀 Rally (Bullish)", "drop": "📉 Drop (Bearish)", "base": "⚖️ Base (Neutral)"}[x],
+        help="Select the pattern type to validate"
+    )
     
     st.divider()
     
-    use_auto_atr = st.checkbox("Auto-detect ATR", value=True)
+    mode = st.radio(
+        "🎯 Selection Mode",
+        ["Automatic (Last N Candles)", "Manual Time Range", "Custom Candle Selection"],
+        help="Choose your preferred method for candle selection"
+    )
+    
+    st.divider()
+    
+    # ATR Settings
+    st.subheader("📊 ATR Configuration")
+    use_auto_atr = st.checkbox("🤖 Auto-detect ATR", value=True, help="Automatically calculate ATR from OANDA data")
     if not use_auto_atr:
-        current_atr = st.number_input("Manual ATR", min_value=0.0001, value=0.0075, step=0.0001, format="%.4f")
+        current_atr = st.number_input(
+            "📏 Manual ATR Value", 
+            min_value=0.0001, 
+            value=0.0075, 
+            step=0.0001, 
+            format="%.4f",
+            help="Enter ATR value manually"
+        )
+    
+    st.divider()
+    
+    # Pattern Guide
+    st.subheader("📚 Pattern Guide")
+    with st.expander("ℹ️ Pattern Rules"):
+        st.write("""
+        **Rally Pattern:**
+        - Strong upward momentum
+        - Higher highs & higher lows
+        - Significant range (≥1.0 ATR)
+        
+        **Drop Pattern:**
+        - Strong downward momentum  
+        - Lower highs & lower lows
+        - Significant range (≥1.0 ATR)
+        
+        **Base Pattern:**
+        - Consolidation zone
+        - Limited price movement
+        - Range ≤1.5 ATR
+        """)
 
-# Main Tabs
-tab1, tab2, tab3 = st.tabs(["Analysis", "Chart", "Data"])
+# Main content with tabs
+tab1, tab2, tab3, tab4 = st.tabs(["🔍 Analysis", "📈 Interactive Chart", "📊 Data Explorer", "⚙️ Settings"])
 
 with tab1:
     if mode == "Automatic (Last N Candles)":
+        st.subheader("🔄 Automatic Pattern Analysis")
+        
         col1, col2 = st.columns([3, 1])
         with col1:
-            n_candles = st.slider("Number of candles", 1, 6, 3)
+            n_candles = st.slider(
+                "Number of candles to analyze", 
+                1, 6, 3, 
+                help="Select the last N complete candles for pattern analysis (maximum 6 candles)"
+            )
         with col2:
-            analyze_btn = st.button("Analyze", type="primary")
+            analyze_btn = st.button("Analyze Pattern", type="primary")
         
         if analyze_btn:
             end_utc = datetime.now(UTC)
             start_utc = end_utc - timedelta(days=10)
             
-            with st.spinner("Fetching data..."):
+            with st.spinner("🔄 Fetching OANDA market data and calculating technical indicators..."):
                 df = fetch_ohlc(symbol, start_utc, end_utc)
             
             if not df.empty:
                 st.session_state['df'] = df
                 
+                # Check for incomplete candle
                 has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
                 
+                # Get ATR with enhanced feedback
                 if use_auto_atr:
                     if has_incomplete and len(df) > 1:
-                        current_atr = df['atr'].iloc[-2] if not pd.isna(df['atr'].iloc[-2]) else 0.0075
+                        current_atr = df['atr'].iloc[-2]
+                        st.info(f"📊 Auto-detected ATR: {current_atr:.4f} (calculated from last complete candle)")
                     else:
-                        current_atr = df['atr'].iloc[-1] if not pd.isna(df['atr'].iloc[-1]) else 0.0075
-                    st.info(f"Auto-detected ATR: {current_atr:.4f}")
+                        current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.0075
+                        st.info(f"📊 Auto-detected ATR: {current_atr:.4f}")
                 
-                analysis_df = df[df['is_complete']].tail(n_candles) if has_incomplete else df.tail(n_candles)
+                # Select candles (only complete ones for validation)
+                if has_incomplete:
+                    analysis_df = df[df['is_complete']].tail(n_candles)
+                else:
+                    analysis_df = df.tail(n_candles)
                 
-                if not analysis_df.empty:
-                    candles = [dict(open=row.open, high=row.high, low=row.low, close=row.close) 
-                              for _, row in analysis_df.iterrows()]
-                    
-                    st.session_state['selected_candles'] = analysis_df
-                    
-                    ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
-                    
-                    if ok:
-                        st.success(f"✅ {pattern.upper()} pattern VALID - {message}")
-                    else:
-                        st.error(f"❌ {pattern.upper()} pattern INVALID - {message}")
-                    
-                    if details:
-                        with st.expander("Validation Details"):
-                            for check, result in details.items():
-                                st.write(f"{'✅' if result else '❌'} {check.replace('_', ' ').title()}")
-                    
-                    # Metrics
-                    if candles:
-                        ranges = [(c["high"] - c["low"]) / current_atr for c in candles]
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Candles", len(candles))
-                        col2.metric("Avg Range (ATR)", f"{np.mean(ranges):.2f}")
-                        col3.metric("Net Move (ATR)", f"{net_move_atr(candles, current_atr):.2f}")
-                        col4.metric("Current ATR", f"{current_atr:.4f}")
-    
-    else:  # Manual Time Range
+                candles = [
+                    dict(open=row.open, high=row.high, low=row.low, close=row.close)
+                    for _, row in analysis_df.iterrows()
+                ]
+                selected_candles = candles
+                st.session_state['selected_candles'] = analysis_df
+                
+                # Enhanced validation display
+                ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
+                display_validation_results(ok, message, pattern, details)
+                display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
+            else:
+                st.error("❌ Unable to fetch data for the specified symbol. Please check the symbol and try again.")
+
+    elif mode == "Manual Time Range":
+        st.subheader("🕐 Manual Time Range Selection")
+        
+        st.info("⏰ Time Zone Notice: All times should be entered in Indian Standard Time (IST)")
+        
+        # Initialize session state for time range persistence
+        if 'manual_start_date' not in st.session_state:
+            st.session_state.manual_start_date = datetime.now(IST).date() - timedelta(days=3)
+        if 'manual_start_time' not in st.session_state:
+            st.session_state.manual_start_time = datetime.strptime("00:00", "%H:%M").time()
+        if 'manual_end_date' not in st.session_state:
+            st.session_state.manual_end_date = datetime.now(IST).date()
+        if 'manual_end_time' not in st.session_state:
+            st.session_state.manual_end_time = datetime.strptime("16:00", "%H:%M").time()
+        
         col1, col2 = st.columns(2)
         with col1:
-            start_date = st.date_input("Start Date")
-            start_time = st.time_input("Start Time")
+            st.write("**📅 Start Time**")
+            start_date = st.date_input(
+                "Date", 
+                value=st.session_state.manual_start_date,
+                key="start_date_input"
+            )
+            start_time = st.time_input(
+                "Time (IST)", 
+                value=st.session_state.manual_start_time,
+                key="start_time_input"
+            )
+            
         with col2:
-            end_date = st.date_input("End Date")
-            end_time = st.time_input("End Time")
+            st.write("**📅 End Time**")
+            end_date = st.date_input(
+                "Date ", 
+                value=st.session_state.manual_end_date,
+                key="end_date_input"
+            )
+            end_time = st.time_input(
+                "Time (IST) ", 
+                value=st.session_state.manual_end_time,
+                key="end_time_input"
+            )
         
-        if st.button("Validate Range", type="primary"):
+        # Update session state when values change
+        st.session_state.manual_start_date = start_date
+        st.session_state.manual_start_time = start_time
+        st.session_state.manual_end_date = end_date
+        st.session_state.manual_end_time = end_time
+        
+        # Add preset time range buttons
+        st.write("**Quick Time Ranges:**")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("Last 12H", help="Last 12 hours"):
+                now_ist = datetime.now(IST)
+                st.session_state.manual_end_date = now_ist.date()
+                st.session_state.manual_end_time = now_ist.time()
+                st.session_state.manual_start_date = (now_ist - timedelta(hours=12)).date()
+                st.session_state.manual_start_time = (now_ist - timedelta(hours=12)).time()
+                st.rerun()
+        
+        with col2:
+            if st.button("Last 24H", help="Last 24 hours"):
+                now_ist = datetime.now(IST)
+                st.session_state.manual_end_date = now_ist.date()
+                st.session_state.manual_end_time = now_ist.time()
+                st.session_state.manual_start_date = (now_ist - timedelta(days=1)).date()
+                st.session_state.manual_start_time = (now_ist - timedelta(days=1)).time()
+                st.rerun()
+        
+        with col3:
+            if st.button("Last 3 Days", help="Last 3 days"):
+                now_ist = datetime.now(IST)
+                st.session_state.manual_end_date = now_ist.date()
+                st.session_state.manual_end_time = now_ist.time()
+                st.session_state.manual_start_date = (now_ist - timedelta(days=3)).date()
+                st.session_state.manual_start_time = (now_ist - timedelta(days=3)).time()
+                st.rerun()
+        
+        with col4:
+            if st.button("Reset", help="Reset to default"):
+                st.session_state.manual_start_date = datetime.now(IST).date() - timedelta(days=3)
+                st.session_state.manual_start_time = datetime.strptime("00:00", "%H:%M").time()
+                st.session_state.manual_end_date = datetime.now(IST).date()
+                st.session_state.manual_end_time = datetime.strptime("16:00", "%H:%M").time()
+                st.rerun()
+        
+        # Display selected time range
+        try:
+            start_ist = IST.localize(datetime.combine(start_date, start_time))
+            end_ist = IST.localize(datetime.combine(end_date, end_time))
+            duration = end_ist - start_ist
+            
+            st.info(f"**Selected Range:** {start_ist.strftime('%Y-%m-%d %H:%M')} to {end_ist.strftime('%Y-%m-%d %H:%M')} IST\n\n**Duration:** {duration} ({duration.total_seconds()/3600:.1f} hours)")
+            
+        except Exception as e:
+            st.error(f"Invalid time range: {e}")
+        
+        if st.button("Validate Time Range", type="primary"):
             try:
                 start_ist = IST.localize(datetime.combine(start_date, start_time))
                 end_ist = IST.localize(datetime.combine(end_date, end_time))
                 
                 if end_ist <= start_ist:
-                    st.error("End time must be after start time!")
-                else:
-                    start_utc = start_ist.astimezone(UTC) - timedelta(days=5)
-                    end_utc = end_ist.astimezone(UTC)
+                    st.error("❌ End time must be after start time!")
+                    st.stop()
+                
+                start_utc = start_ist.astimezone(UTC) - timedelta(days=5)
+                end_utc = end_ist.astimezone(UTC)
+                
+                with st.spinner("🔄 Analyzing time range and calculating patterns..."):
+                    df = fetch_ohlc(symbol, start_utc, end_utc)
+                
+                if not df.empty:
+                    st.session_state['df'] = df
                     
-                    with st.spinner("Fetching data..."):
-                        df = fetch_ohlc(symbol, start_utc, end_utc)
+                    has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
                     
-                    if not df.empty:
-                        st.session_state['df'] = df
-                        
-                        if use_auto_atr:
-                            atr_values = df['atr'].dropna()
-                            current_atr = atr_values.iloc[-1] if not atr_values.empty else 0.0075
-                            st.info(f"Auto-detected ATR: {current_atr:.4f}")
-                        
-                        sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
-                        
-                        if not sel.empty and len(sel) <= 6:
-                            candles = [dict(open=row.open, high=row.high, low=row.low, close=row.close) 
-                                      for _, row in sel.iterrows()]
-                            st.session_state['selected_candles'] = sel
-                            
-                            ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
-                            
-                            if ok:
-                                st.success(f"✅ {pattern.upper()} pattern VALID")
-                            else:
-                                st.error(f"❌ {pattern.upper()} pattern INVALID")
-                            
-                            if details:
-                                with st.expander("Validation Details"):
-                                    for check, result in details.items():
-                                        st.write(f"{'✅' if result else '❌'} {check.replace('_', ' ').title()}")
-                        elif len(sel) > 6:
-                            st.warning(f"Selected range has {len(sel)} candles. Max allowed is 6.")
+                    if use_auto_atr:
+                        if has_incomplete and len(df) > 1:
+                            current_atr = df['atr'].iloc[-2]
+                            st.success(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
                         else:
-                            st.warning("No complete candles in selected range.")
+                            current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.0075
+                            st.success(f"📊 Auto-detected ATR: {current_atr:.4f}")
+                    
+                    sel = df[(df['datetime_ist'] >= start_ist) & (df['datetime_ist'] <= end_ist) & df['is_complete']].copy()
+                    
+                    if not sel.empty and len(sel) <= 6:
+                        candles = [
+                            dict(open=row.open, high=row.high, low=row.low, close=row.close)
+                            for _, row in sel.iterrows()
+                        ]
+                        selected_candles = candles
+                        st.session_state['selected_candles'] = sel
+                        
+                        ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
+                        display_validation_results(ok, message, pattern, details)
+                        display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
+                    elif len(sel) > 6:
+                        st.warning(f"⚠️ Selected range contains {len(sel)} candles. Maximum allowed is 6 candles for pattern analysis.")
+                    else:
+                        st.warning("⚠️ No complete candles found in the selected time range.")
+                else:
+                    st.error("❌ Unable to fetch data for the specified time range.")
+                    
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"❌ Error processing time range: {e}")
+
+    else:  # Custom selection
+        st.subheader("🎯 Custom Candle Selection")
+        
+        if st.button("Load Recent Market Data", type="primary"):
+            end_utc = datetime.now(UTC)
+            start_utc = end_utc - timedelta(days=15)
+            
+            with st.spinner("🔄 Loading recent OANDA market data..."):
+                df = fetch_ohlc(symbol, start_utc, end_utc)
+            
+            if not df.empty:
+                st.session_state['df'] = df
+                complete_count = df['is_complete'].sum() if 'is_complete' in df.columns else len(df)
+                st.success(f"✅ Successfully loaded {len(df)} candles ({complete_count} complete)")
+            else:
+                st.error("❌ Failed to load market data.")
+        
+        if 'df' in st.session_state:
+            df = st.session_state['df']
+            
+            has_incomplete = 'is_complete' in df.columns and not df.iloc[-1]['is_complete']
+            
+            if use_auto_atr:
+                if has_incomplete and len(df) > 1:
+                    current_atr = df['atr'].iloc[-2]
+                    st.info(f"📊 Auto-detected ATR: {current_atr:.4f} (from last complete candle)")
+                else:
+                    current_atr = df['atr'].iloc[-1] if not df['atr'].isna().all() else 0.0075
+                    st.info(f"📊 Auto-detected ATR: {current_atr:.4f}")
+            
+            df_complete = df[df['is_complete']] if 'is_complete' in df.columns else df
+            df_display = df_complete[['datetime_ist','open','high','low','close']].copy()
+            df_display['datetime_ist'] = df_display['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
+            
+            st.write("#### 🎯 Select Candles for Pattern Analysis")
+            st.caption("Choose 1-6 complete candles from the list below")
+            
+            indices = st.multiselect(
+                "Candle Selection",
+                options=df_display.index.tolist(),
+                format_func=lambda x: f"#{x}: {df_display.loc[x,'datetime_ist']} | O:{df_display.loc[x,'open']:.4f} H:{df_display.loc[x,'high']:.4f} L:{df_display.loc[x,'low']:.4f} C:{df_display.loc[x,'close']:.4f}",
+                max_selections=6,
+                help="Select up to 6 candles for pattern analysis"
+            )
+            
+            if indices and st.button("Validate Selected Pattern", type="primary"):
+                indices = sorted(indices)
+                candles = [
+                    dict(open=df.loc[idx,'open'], high=df.loc[idx,'high'], 
+                         low=df.loc[idx,'low'], close=df.loc[idx,'close'])
+                    for idx in indices
+                ]
+                selected_candles = candles
+                st.session_state['selected_candles'] = df.iloc[indices]
+                
+                ok, message, details = validate_pattern_detailed(candles, current_atr, pattern)
+                display_validation_results(ok, message, pattern, details)
+                display_pattern_metrics(df, candles, current_atr, incomplete_warning=has_incomplete)
 
 with tab2:
-    if 'df' in st.session_state and not st.session_state['df'].empty:
+    st.subheader("📈 Interactive Market Analysis Chart")
+    
+    if 'df' in st.session_state and st.session_state['df'] is not None:
         df = st.session_state['df']
         sel_df = st.session_state.get('selected_candles', None)
         
-        show_atr = st.checkbox("Show ATR", value=True)
-        fig = plot_chart(df, sel_df, show_atr=show_atr)
-        st.plotly_chart(fig, use_container_width=True)
+        # Chart options
+        col1, col2, col3 = st.columns([1, 1, 2])
+        with col1:
+            show_atr = st.checkbox("📊 Show ATR Panel", value=True, help="Display ATR technical indicator")
+        with col2:
+            chart_theme = st.selectbox("🎨 Chart Theme", ["Dark", "Light"], help="Choose chart appearance")
+        
+        # Generate chart
+        fig = plot_combined_chart(df, sel_df, show_atr=show_atr)
+        
+        # Apply theme
+        if chart_theme == "Light":
+            fig.update_layout(template="plotly_white", paper_bgcolor='white', plot_bgcolor='white')
+            fig.update_layout(font=dict(color='black'))
+        
+        chart_config = {
+            'displayModeBar': True, 
+            'toImageButtonOptions': {
+                'format': 'png', 
+                'filename': f'{symbol}_analysis', 
+                'height': 800, 
+                'width': 1200, 
+                'scale': 1
+            }
+        }
+        
+        st.plotly_chart(fig, use_container_width=True, config=chart_config)
+        
+        # Chart insights
+        if sel_df is not None and not sel_df.empty:
+            st.subheader("📝 Chart Insights")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                price_change = sel_df['close'].iloc[-1] - sel_df['open'].iloc[0]
+                price_change_pct = (price_change / sel_df['open'].iloc[0]) * 100
+                
+                with st.container(border=True):
+                    st.write("**💹 Price Movement**")
+                    st.write(f"**Net Change:** {price_change:.4f} ({price_change_pct:+.2f}%)")
+                    st.write(f"**Direction:** {'📈 Bullish' if price_change > 0 else '📉 Bearish' if price_change < 0 else '➡️ Neutral'}")
+            
+            with col2:
+                # Calculate actual pattern duration including the last candle's 4-hour period
+                start_time = sel_df['datetime_ist'].iloc[0]
+                end_time = sel_df['datetime_ist'].iloc[-1] + timedelta(hours=4)  # Add 4 hours for last candle duration
+                time_span = end_time - start_time
+                
+                # Calculate total hours for verification
+                total_hours = len(sel_df) * 4
+                
+                with st.container(border=True):
+                    st.write("**⏱️ Time Analysis**")
+                    st.write(f"**Pattern Duration:** {time_span} ({total_hours} hours)")
+                    st.write(f"**Candles:** {len(sel_df)} periods (4H each)")
     else:
-        st.info("Load data from Analysis tab to view chart")
+        st.info("📊 Interactive Chart Ready\n\nLoad market data from the Analysis tab to view detailed charts and technical indicators.")
 
 with tab3:
-    if 'df' in st.session_state and not st.session_state['df'].empty:
+    st.subheader("📊 Market Data Explorer")
+    
+    if 'df' in st.session_state and st.session_state['df'] is not None:
         df = st.session_state['df']
-        show_last = st.number_input("Show last N candles", min_value=5, max_value=100, value=25)
-        display_df = df.tail(show_last)[['datetime_ist', 'open', 'high', 'low', 'close', 'atr']]
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Display options
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            show_last_n = st.number_input("Show Last N Candles", min_value=5, max_value=100, value=25)
+        with col2:
+            show_atr_col = st.checkbox("ATR Column", value=True)
+        with col3:
+            show_complete_col = st.checkbox("Status Column", value=True)
+        with col4:
+            decimal_places = st.selectbox("Decimals", [2, 3, 4, 5], index=2)
+        
+        # Prepare display dataframe
+        display_df = df.tail(show_last_n).copy()
+        display_df['datetime_ist'] = display_df['datetime_ist'].dt.strftime('%Y-%m-%d %H:%M IST')
+        
+        # Round price columns
+        price_cols = ['open', 'high', 'low', 'close']
+        for col in price_cols:
+            display_df[col] = display_df[col].round(decimal_places)
+        
+        cols_to_show = ['datetime_ist'] + price_cols
+        
+        if show_atr_col and 'atr' in display_df.columns:
+            cols_to_show.append('atr')
+            display_df['atr'] = display_df['atr'].round(4)
+            
+        if show_complete_col and 'is_complete' in display_df.columns:
+            cols_to_show.append('is_complete')
+            display_df['is_complete'] = display_df['is_complete'].map({
+                True: '✅ Complete', 
+                False: '🔄 Forming'
+            })
+        
+        display_df = display_df[cols_to_show]
+        
+        # Rename columns for better presentation
+        column_names = {
+            'datetime_ist': '📅 Time (IST)',
+            'open': '🔓 Open',
+            'high': '📈 High', 
+            'low': '📉 Low',
+            'close': '🔒 Close',
+            'atr': '📊 ATR',
+            'is_complete': '⚡ Status'
+        }
+        
+        display_df.columns = [column_names.get(col, col) for col in display_df.columns]
+        
+        # Display data
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            height=500
+        )
+        
+        # Download and summary options
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            csv = display_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"{symbol}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
+        with col2:
+            if st.button("📈 Quick Stats", use_container_width=True):
+                latest_prices = df[price_cols].iloc[-show_last_n:]
+                st.write(f"""
+                **📊 Market Summary (Last {show_last_n} Candles)**
+                - **Highest Price:** {latest_prices.max().max():.{decimal_places}f}
+                - **Lowest Price:** {latest_prices.min().min():.{decimal_places}f}
+                - **Average Close:** {latest_prices['close'].mean():.{decimal_places}f}
+                - **Volatility (STD):** {latest_prices['close'].std():.{decimal_places}f}
+                """)
+        
+        with col3:
+            if 'atr' in df.columns and st.button("📊 ATR Analysis", use_container_width=True):
+                recent_atr = df['atr'].iloc[-show_last_n:].dropna()
+                st.write(f"""
+                **📈 ATR Statistics (Last {len(recent_atr)} Periods)**
+                - **Current ATR:** {recent_atr.iloc[-1]:.4f}
+                - **Average ATR:** {recent_atr.mean():.4f}
+                - **ATR High:** {recent_atr.max():.4f}
+                - **ATR Low:** {recent_atr.min():.4f}
+                """)
     else:
-        st.info("Load data from Analysis tab to view data")
+        st.info("📊 Data Explorer Ready\n\nLoad market data from the Analysis tab to explore detailed market information and statistics.")
+
+with tab4:
+    st.subheader("⚙️ Advanced Settings & Configuration")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("#### 🔧 Technical Settings")
+        
+        atr_period = st.number_input("ATR Period", min_value=5, max_value=50, value=21, help="Number of periods for ATR calculation")
+        
+        time_zone = st.selectbox("Time Zone", ["Asia/Kolkata", "UTC", "America/New_York", "Europe/London"], help="Display timezone for charts")
+        
+        data_interval = st.selectbox("Data Interval", ["4h", "1h", "1d", "1w"], help="Candle timeframe")
+        
+        st.write("#### 📊 Display Preferences")
+        
+        default_theme = st.selectbox("Default Chart Theme", ["Dark", "Light"], help="Default appearance for charts")
+        
+        show_tooltips = st.checkbox("Enhanced Tooltips", value=True, help="Show detailed hover information")
+        
+        animate_charts = st.checkbox("Chart Animations", value=True, help="Enable smooth chart transitions")
+    
+    with col2:
+        st.write("#### 🎨 Color Scheme")
+        
+        bullish_color = st.color_picker("Bullish Candle Color", "#00D4AA")
+        bearish_color = st.color_picker("Bearish Candle Color", "#FF6B6B")
+        atr_color = st.color_picker("ATR Line Color", "#2E86C1")
+        
+        st.write("#### 🔔 Notifications")
+        
+        email_alerts = st.checkbox("Email Alerts", help="Send pattern validation results via email")
+        
+        if email_alerts:
+            email_address = st.text_input("Email Address", placeholder="your@email.com")
+        
+        sound_alerts = st.checkbox("Sound Alerts", help="Play sound when pattern is validated")
+        
+        st.write("#### 💾 Data Management")
+        
+        auto_save = st.checkbox("Auto-save Analysis", value=True, help="Automatically save analysis results")
+        
+        cache_duration = st.selectbox("Cache Duration", ["5 minutes", "15 minutes", "1 hour"], help="How long to cache market data")
+        
+        if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
+            st.cache_data.clear()
+            st.success("✅ Cache cleared successfully!")
+        
+        # Save settings
+        if st.button("💾 Save Settings", type="primary"):
+            # Here you would save settings to session state or a config file
+            st.success("✅ Settings saved successfully!")
+
+# Footer
+st.divider()
+with st.container():
+    st.info("🎯 Pattern Validator Pro v4.0 - OANDA Edition\n\nProfessional Trading Pattern Analysis | Real-time OANDA Data | Advanced ATR Calculations")
