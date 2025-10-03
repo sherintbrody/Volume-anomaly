@@ -305,7 +305,7 @@ with st.sidebar:
     # Instrument selection
     instrument = st.selectbox(
         "📈 Select Instrument", 
-        ["XAU_USD", "NAS100_USD", "US30_USD"],
+        ["US30_USD", "XAU_USD", "NAS100_USD" ],
         help="Choose your preferred trading instrument"
     )
     
