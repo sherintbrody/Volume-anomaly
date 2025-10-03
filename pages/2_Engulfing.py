@@ -312,7 +312,7 @@ with st.sidebar:
     # Timeframe
     timeframe = st.radio(
         "⏰ Timeframe Selection", 
-        ["H4", "D"],
+        ["D", "H4"],
         horizontal=True,
         help="H4 = 4-hour candles, D = Daily candles"
     )
