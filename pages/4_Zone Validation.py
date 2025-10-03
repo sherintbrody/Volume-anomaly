@@ -325,7 +325,7 @@ pattern_rules = {
         2: {
             "min_range_atr": 1.0,
             "higher_high_low": True,
-            "min_net_move_atr": 0.8
+            "min_net_move_atr": 1.0
         },
         3: {
             "min_bars_range_atr": {"count": 2, "min": 1.0},
