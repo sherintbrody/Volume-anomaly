@@ -135,7 +135,7 @@ else:
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
 # Show fixed threshold info
-st.sidebar.info(f"📈 **Fixed Threshold: {THRESHOLD_MULTIPLIER}×**\n\nSpike detected when:\nVolume > (Avg × {THRESHOLD_MULTIPLIER})")
+st.sidebar.success(f"📈 **Threshold: {THRESHOLD_MULTIPLIER}×**\n\n**Example:**\n- Avg = 10\n- Threshold = 10 × {THRESHOLD_MULTIPLIER} = **16.18**\n- Spike if Vol > 16.18")
 
 st.sidebar.toggle(
     "Skip Weekends in Average",
@@ -378,15 +378,20 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
         
-        # EXACT SAME LOGIC AS ORIGINAL - FIXED 1.618 THRESHOLD
+        # EXACT CALCULATION: Threshold = Average × 1.618
+        # Example: If avg = 10, then threshold = 10 × 1.618 = 16.18
         threshold = avg * THRESHOLD_MULTIPLIER if avg else 0
+        
+        # SPIKE DETECTION: Volume must be GREATER than threshold
+        # Example: Spike if vol > 16.18
         over = (threshold > 0 and vol > threshold)
+        
         mult = (vol / threshold) if over and threshold > 0 else (vol / avg if avg else 0)
         
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
         sentiment = get_sentiment(c)
         
-        # Build row based on mode
+        # Build row based on mode - NOW INCLUDING AVG AND THRESHOLD COLUMNS
         if is_4h_mode:
             body_pct = get_body_percentage(c)
             rows.append([
@@ -397,6 +402,8 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 f"{float(c['mid']['l']):.1f}",
                 f"{float(c['mid']['c']):.1f}",
                 vol,
+                int(avg) if avg > 0 else 0,  # Show 21-day average
+                int(threshold) if threshold > 0 else 0,  # Show threshold (avg × 1.618)
                 spike_diff,
                 sentiment,
                 body_pct
@@ -410,6 +417,8 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 f"{float(c['mid']['l']):.1f}",
                 f"{float(c['mid']['c']):.1f}",
                 vol,
+                int(avg) if avg > 0 else 0,  # Show 21-day average
+                int(threshold) if threshold > 0 else 0,  # Show threshold (avg × 1.618)
                 spike_diff,
                 sentiment
             ])
@@ -461,26 +470,26 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
-        c3.metric("Threshold", f"{summary['threshold']:.0f}", help=f"Avg × {THRESHOLD_MULTIPLIER}")
-        c4.metric("Multiplier", f"{summary['multiplier']:.2f}", 
-                 delta="SPIKE" if summary['over'] else None,
+        c2.metric(f"21-Day Avg", f"{summary['avg']:.0f}")
+        c3.metric(f"Threshold (Avg×{THRESHOLD_MULTIPLIER})", f"{summary['threshold']:.0f}")
+        c4.metric("Actual Multiplier", f"{summary['multiplier']:.2f}", 
+                 delta="SPIKE ✓" if summary['over'] else "No Spike",
                  delta_color="normal" if summary['over'] else "off")
     
-    # Define columns based on mode
+    # Define columns based on mode - INCLUDING AVG AND THRESHOLD
     if is_4h_mode:
         columns = [
             "Time (IST)",
             "Time Range (4H)",
             "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment", "Body %"
+            "Volume", "21-Day Avg", "Threshold", "Spike Δ", "Sentiment", "Body %"
         ]
     else:
         columns = [
             "Time (IST)",
             f"Time Bucket ({bucket_lbl})",
             "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment"
+            "Volume", "21-Day Avg", "Threshold", "Spike Δ", "Sentiment"
         ]
     
     df = pd.DataFrame(rows, columns=columns)
@@ -491,8 +500,10 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         "High": st.column_config.NumberColumn(format="%.1f"),
         "Low": st.column_config.NumberColumn(format="%.1f"),
         "Close": st.column_config.NumberColumn(format="%.1f"),
-        "Volume": st.column_config.NumberColumn(format="%d"),
-        "Spike Δ": st.column_config.TextColumn(help="Volume - Threshold (only shown if spike detected)"),
+        "Volume": st.column_config.NumberColumn(format="%d", help="Actual volume for this candle"),
+        "21-Day Avg": st.column_config.NumberColumn(format="%d", help="Average volume from previous 21 trading days"),
+        "Threshold": st.column_config.NumberColumn(format="%d", help=f"21-Day Avg × {THRESHOLD_MULTIPLIER} = Spike cutoff"),
+        "Spike Δ": st.column_config.TextColumn(help="Volume - Threshold (shown only if spike detected)"),
         "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
     }
     
@@ -503,7 +514,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     
     st.dataframe(
         df,
-        use_container_width=True,  # FIXED: Changed from width=None
+        use_container_width=True,
         hide_index=True,
         height=520,
         column_config=column_config,
@@ -553,7 +564,7 @@ def run_backtest_analysis():
             unsafe_allow_html=True,
         )
     with top_r:
-        st.info(f"💡 **Spike when:** Volume > (Avg × {THRESHOLD_MULTIPLIER})")
+        st.info(f"💡 **Spike Condition:**\n\nVolume > (21-Day Avg × {THRESHOLD_MULTIPLIER})\n\nExample: If Avg=10, then Vol must be > 16.18")
     
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
@@ -586,14 +597,17 @@ def run_backtest_analysis():
         with st.expander("📋 View All Spikes", expanded=True):
             for spike in all_spike_msgs:
                 st.markdown(
-                    f"🔔 **{spike['instrument']}** @ {spike['time']} | "
-                    f"Vol: **{spike['volume']:,}** vs Avg: {spike['avg']:,} | "
-                    f"Threshold: {spike['threshold']:,} | "
-                    f"Spike: **{spike['spike_diff']}** ({spike['multiplier']:.2f}×) {spike['sentiment']}"
+                    f"🔔 **{spike['instrument']}** @ {spike['time']}\n\n"
+                    f"- Volume: **{spike['volume']:,}**\n"
+                    f"- 21-Day Avg: {spike['avg']:,}\n"
+                    f"- Threshold: {spike['threshold']:,} (= {spike['avg']:,} × {THRESHOLD_MULTIPLIER})\n"
+                    f"- Spike Delta: **{spike['spike_diff']}**\n"
+                    f"- Multiplier: {spike['multiplier']:.2f}× {spike['sentiment']}\n"
+                    f"---"
                 )
     else:
         if all_rows_have_data:
-            st.info(f"ℹ️ No volume spikes detected on {date_str} with threshold {THRESHOLD_MULTIPLIER}×")
+            st.info(f"ℹ️ No volume spikes detected on {date_str}\n\nNo candles had Volume > (21-Day Avg × {THRESHOLD_MULTIPLIER})")
 
 # ====== MAIN ======
 st.title("📊 Volume Spike Backtesting Tool")
@@ -621,29 +635,24 @@ else:
         
         ### Spike Detection Formula
         ```
-        Spike Detected = Volume > (21-Day Average × {THRESHOLD_MULTIPLIER})
+        21-Day Avg = Sum of volumes / 21 trading days
+        Threshold = 21-Day Avg × {THRESHOLD_MULTIPLIER}
+        
+        SPIKE DETECTED IF: Volume > Threshold
         ```
         
-        ### Logic (Same as Live Dashboard)
-        - Uses **21 previous trading days** for volume averaging
-        - **Excludes the selected date** from the average calculation
-        - Compares selected date's volume against historical average
-        - Fixed threshold of **{THRESHOLD_MULTIPLIER}×** (Golden Ratio)
-        """)
-    
-    # Show example
-    with st.expander("💡 Example", expanded=False):
-        st.markdown(f"""
-        **Scenario:**
-        - Date: 2024-01-15
-        - Instrument: XAUUSD
-        - Candle at 10:00 AM has volume: 1,000
-        - 21-day average for 10:00 AM bucket: 500
-        - Threshold Multiplier: {THRESHOLD_MULTIPLIER} (fixed)
+        ### Example Calculation
+        - 21-Day Average = 10
+        - Threshold = 10 × {THRESHOLD_MULTIPLIER} = **16.18**
+        - Current Volume = 20
+        - Is 20 > 16.18? **YES → SPIKE!** ✅
+        - Spike Delta = 20 - 16.18 = 3.82
         
-        **Calculation:**
-        - Threshold = 500 × {THRESHOLD_MULTIPLIER} = 809
-        - Is 1,000 > 809? **YES** ✅
-        - **SPIKE DETECTED!**
-        - Spike Delta = 1,000 - 809 = 191
+        ### What You'll See in Table
+        - **Volume**: Actual volume for that candle
+        - **21-Day Avg**: Average from previous 21 trading days
+        - **Threshold**: The cutoff (Avg × {THRESHOLD_MULTIPLIER})
+        - **Spike Δ**: How much above threshold (if spike)
+        
+        You can verify each row yourself!
         """)
