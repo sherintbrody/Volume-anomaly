@@ -145,14 +145,7 @@ threshold_value = st.sidebar.slider(
 )
 
 # Show example calculation
-st.sidebar.success(f"""
-**Spike Detection Rule:**
 
-If 21-Day Avg = 100
-Then Threshold = 100 × **{threshold_value}** = **{int(100 * threshold_value)}**
-
-✅ Spike if Volume > {int(100 * threshold_value)}
-""")
 
 st.sidebar.toggle(
     "Skip Weekends in Average",
