@@ -83,6 +83,9 @@ DISPLAY_ROWS = 13
 # Number of trading days to use for averaging (SAME AS ORIGINAL)
 TRADING_DAYS_FOR_AVERAGE = 21
 
+# FIXED THRESHOLD MULTIPLIER - SAME AS ORIGINAL DASHBOARD
+THRESHOLD_MULTIPLIER = 1.618
+
 # ====== SIDEBAR CONFIG ======
 st.sidebar.title("🔧 Backtest Settings")
 
@@ -97,8 +100,6 @@ if "skip_weekends" not in st.session_state:
     st.session_state.skip_weekends = True
 if "backtest_date" not in st.session_state:
     st.session_state.backtest_date = datetime.now(IST).date() - timedelta(days=1)
-if "threshold_multiplier" not in st.session_state:
-    st.session_state.threshold_multiplier = 1.618
 
 # Date Picker for Backtesting
 st.sidebar.date_input(
@@ -133,18 +134,8 @@ if st.session_state.candle_size == "15 min":
 else:
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
-# THRESHOLD MULTIPLIER - Key parameter for spike detection
-threshold_value = st.sidebar.slider(
-    "📈 Threshold Multiplier",
-    min_value=1.0,
-    max_value=3.0,
-    step=0.1,
-    value=st.session_state.threshold_multiplier,
-    key="threshold_multiplier",
-    help="Volume spike detected when: Volume > (Average × Threshold). Lower = more sensitive, Higher = only extreme spikes"
-)
-
-st.sidebar.markdown(f"**Current Threshold: Avg × {threshold_value:.2f}**")
+# Show fixed threshold info
+st.sidebar.info(f"📈 **Fixed Threshold: {THRESHOLD_MULTIPLIER}×**\n\nSpike detected when:\nVolume > (Avg × {THRESHOLD_MULTIPLIER})")
 
 st.sidebar.toggle(
     "Skip Weekends in Average",
@@ -349,8 +340,8 @@ def compute_4h_position_averages(code, selected_date, skip_weekends=True):
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 
 # ====== CORE PROCESS ======
-def process_instrument(name, code, bucket_size_minutes, granularity, selected_date, threshold_multiplier):
-    """Process instrument for the selected backtest date with EXPLICIT threshold_multiplier parameter"""
+def process_instrument(name, code, bucket_size_minutes, granularity, selected_date):
+    """Process instrument for the selected backtest date - EXACT SAME LOGIC AS ORIGINAL"""
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date, skip_weekends=st.session_state.skip_weekends)
     
     is_4h_mode = (granularity == "H4")
@@ -387,8 +378,8 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
         
-        # CRITICAL: Use the threshold_multiplier parameter explicitly
-        threshold = avg * threshold_multiplier if avg else 0
+        # EXACT SAME LOGIC AS ORIGINAL - FIXED 1.618 THRESHOLD
+        threshold = avg * THRESHOLD_MULTIPLIER if avg else 0
         over = (threshold > 0 and vol > threshold)
         mult = (vol / threshold) if over and threshold > 0 else (vol / avg if avg else 0)
         
@@ -406,8 +397,6 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 f"{float(c['mid']['l']):.1f}",
                 f"{float(c['mid']['c']):.1f}",
                 vol,
-                int(avg),  # Show average
-                int(threshold),  # Show threshold
                 spike_diff,
                 sentiment,
                 body_pct
@@ -421,8 +410,6 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 f"{float(c['mid']['l']):.1f}",
                 f"{float(c['mid']['c']):.1f}",
                 vol,
-                int(avg),  # Show average
-                int(threshold),  # Show threshold
                 spike_diff,
                 sentiment
             ])
@@ -475,7 +462,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Volume", f"{summary['volume']:,}")
         c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
-        c3.metric("Threshold", f"{summary['threshold']:.0f}", help=f"Avg × {st.session_state.threshold_multiplier:.2f}")
+        c3.metric("Threshold", f"{summary['threshold']:.0f}", help=f"Avg × {THRESHOLD_MULTIPLIER}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}", 
                  delta="SPIKE" if summary['over'] else None,
                  delta_color="normal" if summary['over'] else "off")
@@ -486,14 +473,14 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
             "Time (IST)",
             "Time Range (4H)",
             "Open", "High", "Low", "Close",
-            "Volume", "Avg", "Threshold", "Spike Δ", "Sentiment", "Body %"
+            "Volume", "Spike Δ", "Sentiment", "Body %"
         ]
     else:
         columns = [
             "Time (IST)",
             f"Time Bucket ({bucket_lbl})",
             "Open", "High", "Low", "Close",
-            "Volume", "Avg", "Threshold", "Spike Δ", "Sentiment"
+            "Volume", "Spike Δ", "Sentiment"
         ]
     
     df = pd.DataFrame(rows, columns=columns)
@@ -505,9 +492,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         "Low": st.column_config.NumberColumn(format="%.1f"),
         "Close": st.column_config.NumberColumn(format="%.1f"),
         "Volume": st.column_config.NumberColumn(format="%d"),
-        "Avg": st.column_config.NumberColumn(format="%d", help="21-day average volume"),
-        "Threshold": st.column_config.NumberColumn(format="%d", help=f"Avg × {st.session_state.threshold_multiplier:.2f}"),
-        "Spike Δ": st.column_config.TextColumn(help="Volume - Threshold"),
+        "Spike Δ": st.column_config.TextColumn(help="Volume - Threshold (only shown if spike detected)"),
         "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
     }
     
@@ -518,7 +503,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     
     st.dataframe(
         df,
-        width=None,
+        use_container_width=True,  # FIXED: Changed from width=None
         hide_index=True,
         height=520,
         column_config=column_config,
@@ -535,7 +520,6 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
 # ====== BACKTEST EXECUTION ======
 def run_backtest_analysis():
     selected_date = st.session_state.backtest_date
-    threshold_multiplier = st.session_state.threshold_multiplier
     all_spike_msgs = []
     
     if not st.session_state.selected_instruments:
@@ -562,14 +546,14 @@ def run_backtest_analysis():
             f'<span class="badge">Date: {date_str}</span>'
             f'<span class="badge neutral">Candle: {"4h" if granularity=="H4" else "15m"}</span>'
             f'<span class="badge neutral">{comparison_type}</span>'
-            f'<span class="badge ok">Threshold × {threshold_multiplier:.2f}</span>'
+            f'<span class="badge ok">Threshold × {THRESHOLD_MULTIPLIER}</span>'
             f'<span class="badge neutral">21 Trading Days Avg</span>'
             f'<span class="badge {"ok" if st.session_state.skip_weekends else "warn"}">Weekends: {weekends_status}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
     with top_r:
-        st.info(f"💡 **Spike when:** Volume > (Avg × {threshold_multiplier:.2f})")
+        st.info(f"💡 **Spike when:** Volume > (Avg × {THRESHOLD_MULTIPLIER})")
     
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
@@ -583,7 +567,7 @@ def run_backtest_analysis():
             with cols[col_idx]:
                 with st.container(border=True):
                     rows, spikes, summary = process_instrument(
-                        name, code, bucket_minutes, granularity, selected_date, threshold_multiplier
+                        name, code, bucket_minutes, granularity, selected_date
                     )
                     if rows:
                         all_rows_have_data = True
@@ -609,7 +593,7 @@ def run_backtest_analysis():
                 )
     else:
         if all_rows_have_data:
-            st.info(f"ℹ️ No volume spikes detected on {date_str} with threshold {threshold_multiplier:.2f}× (try lowering the threshold)")
+            st.info(f"ℹ️ No volume spikes detected on {date_str} with threshold {THRESHOLD_MULTIPLIER}×")
 
 # ====== MAIN ======
 st.title("📊 Volume Spike Backtesting Tool")
@@ -623,7 +607,7 @@ else:
     
     # Show instructions
     with st.expander("📖 How to Use", expanded=True):
-        st.markdown("""
+        st.markdown(f"""
         ### Backtesting Instructions
         
         1. **Select Date**: Choose a historical date to analyze
@@ -631,37 +615,34 @@ else:
         3. **Configure Settings**:
            - **Candle Size**: 15 min or 4 hour
            - **Time Bucket**: 15 min, 30 min, or 1 hour (for 15 min candles)
-           - **Threshold Multiplier**: 🔴 **CRITICAL** - Spike detected when Volume > (Average × Multiplier)
-             - 1.0 = Any volume above average
-             - 1.618 = Volume must be 61.8% higher than average (default)
-             - 2.0 = Volume must be 2× the average
+           - **Threshold**: **FIXED at {THRESHOLD_MULTIPLIER}×** (same as live dashboard)
            - **Skip Weekends**: Use only trading days for calculations
         4. **Run Backtest**: Click the button to analyze the selected date
         
         ### Spike Detection Formula
         ```
-        Spike Detected = Volume > (21-Day Average × Threshold Multiplier)
+        Spike Detected = Volume > (21-Day Average × {THRESHOLD_MULTIPLIER})
         ```
         
         ### Logic (Same as Live Dashboard)
         - Uses **21 previous trading days** for volume averaging
         - **Excludes the selected date** from the average calculation
         - Compares selected date's volume against historical average
-        - Detects spikes based on your threshold multiplier setting
+        - Fixed threshold of **{THRESHOLD_MULTIPLIER}×** (Golden Ratio)
         """)
     
     # Show example
     with st.expander("💡 Example", expanded=False):
-        st.markdown("""
+        st.markdown(f"""
         **Scenario:**
         - Date: 2024-01-15
         - Instrument: XAUUSD
         - Candle at 10:00 AM has volume: 1,000
         - 21-day average for 10:00 AM bucket: 500
-        - Threshold Multiplier: 1.618
+        - Threshold Multiplier: {THRESHOLD_MULTIPLIER} (fixed)
         
         **Calculation:**
-        - Threshold = 500 × 1.618 = 809
+        - Threshold = 500 × {THRESHOLD_MULTIPLIER} = 809
         - Is 1,000 > 809? **YES** ✅
         - **SPIKE DETECTED!**
         - Spike Delta = 1,000 - 809 = 191
