@@ -509,7 +509,7 @@ with st.sidebar.expander("🔔 **Alerts**", expanded=True):
         min_value=1.0,
         max_value=3.0,
         step=0.1,
-        value=1.618,
+        value=1.0,
         key="threshold_multiplier"
     )
 
