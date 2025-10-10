@@ -6,7 +6,6 @@ import pandas as pd
 from collections import defaultdict
 import wcwidth
 from streamlit_autorefresh import st_autorefresh
-from supabase import create_client, Client
 
 # ====== PAGE CONFIG ======
 st.set_page_config(
@@ -16,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ====== SUPABASE SETUP (Custom Client - Most Stable) ======
+# ====== SUPABASE SETUP ======
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 
@@ -39,7 +38,6 @@ def init_supabase():
                     "Content-Type": "application/json",
                     "Prefer": "return=representation"
                 }
-                # Create a persistent HTTP client
                 self.client = httpx.Client(timeout=30.0)
             
             def table(self, table_name):
@@ -102,38 +100,16 @@ def init_supabase():
                     response.raise_for_status()
                     
                     class Result:
-                        def __init__(self, data, count=None):
+                        def __init__(self, data):
                             self.data = data
                             self.count = len(data) if data else 0
                     
                     return Result(response.json())
-                except Exception as e:
-                    st.error(f"Supabase query error: {e}")
+                except:
                     class Result:
                         def __init__(self):
                             self.data = []
                             self.count = 0
-                    return Result()
-            
-            def insert(self, data):
-                try:
-                    response = self.client.post(
-                        self.url, 
-                        headers=self.headers, 
-                        json=data if isinstance(data, list) else [data]
-                    )
-                    response.raise_for_status()
-                    
-                    class Result:
-                        def __init__(self, data):
-                            self.data = data
-                    
-                    return Result(response.json())
-                except Exception as e:
-                    st.error(f"Supabase insert error: {e}")
-                    class Result:
-                        def __init__(self):
-                            self.data = []
                     return Result()
             
             def upsert(self, data, on_conflict=None):
@@ -153,8 +129,7 @@ def init_supabase():
                             self.data = data
                     
                     return Result(response.json())
-                except Exception as e:
-                    st.error(f"Supabase upsert error: {e}")
+                except:
                     class Result:
                         def __init__(self):
                             self.data = []
@@ -166,37 +141,27 @@ def init_supabase():
                     for col, filter_val in self.filters.items():
                         params[col] = filter_val
                     
-                    response = self.client.delete(
-                        self.url,
-                        headers=self.headers,
-                        params=params
-                    )
+                    response = self.client.delete(self.url, headers=self.headers, params=params)
                     response.raise_for_status()
                     
                     class Result:
                         def __init__(self):
                             self.data = []
-                            self.deleted_count = 1
                     
                     return Result()
-                except Exception as e:
-                    st.error(f"Supabase delete error: {e}")
+                except:
                     class Result:
                         def __init__(self):
                             self.data = []
-                            self.deleted_count = 0
                     return Result()
         
         return SimpleSupabaseClient(SUPABASE_URL, SUPABASE_KEY)
     
-    except ImportError:
-        st.sidebar.warning("⚠️ httpx not installed. Install with: pip install httpx")
-        return None
-    except Exception as e:
-        st.sidebar.error(f"Supabase init error: {e}")
+    except:
         return None
 
 supabase = init_supabase()
+
 # ====== THEME/STYLE ======
 BADGE_CSS = """
 <style>
@@ -240,7 +205,6 @@ BADGE_CSS = """
     color:var(--warn-fg);
     border-color:var(--warn-br);
 }
-.section-title { margin: 0 0 4px 0; }
 </style>
 """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
@@ -284,7 +248,7 @@ def get_cached_candles(instrument, granularity, start_time, end_time):
         ).order('time').execute()
         
         return response.data if response.data else []
-    except Exception as e:
+    except:
         return []
 
 def save_candles_to_cache(instrument, granularity, candles):
@@ -314,12 +278,8 @@ def save_candles_to_cache(instrument, granularity, candles):
             })
         
         if records:
-            supabase.table('candles_cache').upsert(
-                records,
-                on_conflict='instrument,granularity,time'
-            ).execute()
-        
-    except Exception as e:
+            supabase.table('candles_cache').upsert(records, on_conflict='instrument,granularity,time').execute()
+    except:
         pass
 
 def get_cached_averages(instrument, granularity, bucket_type):
@@ -341,7 +301,7 @@ def get_cached_averages(instrument, granularity, bucket_type):
         if response.data and len(response.data) > 0:
             return json.loads(response.data[0]['averages'])
         return {}
-    except Exception as e:
+    except:
         return {}
 
 def save_averages_to_cache(instrument, granularity, bucket_type, averages):
@@ -358,29 +318,12 @@ def save_averages_to_cache(instrument, granularity, bucket_type, averages):
             'calculated_at': datetime.now(UTC).isoformat()
         }
         
-        supabase.table('volume_averages').upsert(
-            record,
-            on_conflict='instrument,granularity,bucket_type'
-        ).execute()
-    except Exception as e:
+        supabase.table('volume_averages').upsert(record, on_conflict='instrument,granularity,bucket_type').execute()
+    except:
         pass
 
 # ====== ALERT MEMORY ======
 def load_alerted_candles():
-    """Load from Supabase if available, else from file"""
-    if supabase:
-        try:
-            today = datetime.now(IST).date().isoformat()
-            response = supabase.table('alert_state').select('*').eq(
-                'date', today
-            ).execute()
-            
-            if response.data and len(response.data) > 0:
-                return set(json.loads(response.data[0]['alerted_candles']))
-            return set()
-        except:
-            pass
-    
     if os.path.exists(ALERT_STATE_FILE):
         try:
             with open(ALERT_STATE_FILE, "r") as f:
@@ -390,24 +333,8 @@ def load_alerted_candles():
     return set()
 
 def save_alerted_candles(alerted_set):
-    """Save to both Supabase and file"""
     with open(ALERT_STATE_FILE, "w") as f:
         json.dump(list(alerted_set), f)
-    
-    if supabase:
-        try:
-            today = datetime.now(IST).date().isoformat()
-            record = {
-                'date': today,
-                'alerted_candles': json.dumps(list(alerted_set)),
-                'updated_at': datetime.now(UTC).isoformat()
-            }
-            supabase.table('alert_state').upsert(
-                record,
-                on_conflict='date'
-            ).execute()
-        except Exception as e:
-            pass
 
 def reset_if_new_day():
     today = datetime.now(IST).date().isoformat()
@@ -417,11 +344,6 @@ def reset_if_new_day():
         if last != today:
             with open(ALERT_STATE_FILE, "w") as f:
                 f.write("[]")
-            if supabase:
-                try:
-                    supabase.table('alert_state').delete().neq('date', today).execute()
-                except:
-                    pass
     with open(ALERT_DATE_FILE, "w") as f:
         f.write(today)
 
@@ -501,11 +423,12 @@ st.sidebar.toggle(
 if supabase:
     st.sidebar.success("✅ Supabase Connected")
 else:
-    st.sidebar.warning("⚠️ Supabase Not Connected")
+    st.sidebar.info("ℹ️ File cache mode")
 
 # ====== AUTO-REFRESH ======
 refresh_ms = st.session_state.refresh_minutes * 60 * 1000
 refresh_count = st_autorefresh(interval=refresh_ms, limit=None, key="volume-refresh")
+
 
 # ====== TELEGRAM ALERT ======
 def send_telegram_alert(message):
