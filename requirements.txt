@@ -5,3 +5,4 @@ pytz
 wcwidth
 tabulate
 plotly==5.18.0
+supabase==2.3.4
