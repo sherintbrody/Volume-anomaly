@@ -165,6 +165,9 @@ else:
 
 st.sidebar.markdown("---")
 
+if "enable_telegram_alerts" not in st.session_state:
+    st.session_state.enable_telegram_alerts = True
+    
 st.sidebar.toggle(
     "Enable Telegram Alerts",
     value=st.session_state.enable_telegram_alerts,
