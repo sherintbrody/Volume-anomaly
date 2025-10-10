@@ -68,7 +68,7 @@ API_KEY = st.secrets["API_KEY"]
 ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
-DEFAULT_INSTRUMENTS = {
+INSTRUMENTS = {
     "XAUUSD": "XAU_USD",
     "NAS100": "NAS100_USD",
     "US30": "US30_USD"
@@ -113,10 +113,8 @@ def reset_if_new_day():
 st.sidebar.title("🔧 Settings")
 
 # Initialize session state
-if "custom_instruments" not in st.session_state:
-    st.session_state.custom_instruments = {}
 if "selected_instruments" not in st.session_state:
-    st.session_state.selected_instruments = list(DEFAULT_INSTRUMENTS.keys())
+    st.session_state.selected_instruments = list(INSTRUMENTS.keys())
 if "refresh_minutes" not in st.session_state:
     st.session_state.refresh_minutes = 5
 if "bucket_choice" not in st.session_state:
@@ -133,44 +131,10 @@ if "alert_multiplier" not in st.session_state:
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 
-# Combine default and custom instruments
-all_instruments = {**DEFAULT_INSTRUMENTS, **st.session_state.custom_instruments}
-
-# Custom Instrument Addition
-st.sidebar.markdown("### ➕ Add Custom Instrument")
-with st.sidebar.expander("Add New Instrument"):
-    col1, col2 = st.columns(2)
-    with col1:
-        custom_name = st.text_input("Display Name", placeholder="e.g., EUR/USD", key="custom_name_input")
-    with col2:
-        custom_code = st.text_input("OANDA Code", placeholder="e.g., EUR_USD", key="custom_code_input")
-    
-    if st.button("➕ Add Instrument", use_container_width=True):
-        if custom_name and custom_code:
-            st.session_state.custom_instruments[custom_name] = custom_code
-            st.success(f"✅ Added {custom_name}")
-            st.rerun()
-        else:
-            st.error("⚠️ Please enter both name and code")
-    
-    if st.session_state.custom_instruments:
-        st.markdown("**Custom Instruments:**")
-        for name, code in list(st.session_state.custom_instruments.items()):
-            col_a, col_b = st.columns([3, 1])
-            col_a.caption(f"{name} → {code}")
-            if col_b.button("🗑️", key=f"del_{name}"):
-                del st.session_state.custom_instruments[name]
-                # Remove from selected if it was selected
-                if name in st.session_state.selected_instruments:
-                    st.session_state.selected_instruments.remove(name)
-                st.rerun()
-
-st.sidebar.markdown("---")
-
 # Instrument Selection
 st.sidebar.multiselect(
     "Select Instruments to Monitor",
-    options=list(all_instruments.keys()),
+    options=list(INSTRUMENTS.keys()),
     default=st.session_state.selected_instruments,
     key="selected_instruments"
 )
@@ -200,7 +164,6 @@ else:
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔔 Alerts")
 
 st.sidebar.toggle(
     "Enable Telegram Alerts",
@@ -216,19 +179,6 @@ st.sidebar.slider(
     value=st.session_state.alert_multiplier,
     key="alert_multiplier",
     help="Send alert when Volume ÷ Average ≥ this multiplier"
-)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 Display Settings")
-
-st.sidebar.slider(
-    "📈 Visual Threshold Multiplier",
-    min_value=1.0,
-    max_value=3.0,
-    step=0.1,
-    value=1.618,
-    key="threshold_multiplier",
-    help="Used for visual threshold in table and metrics (not for alerts)"
 )
 
 st.sidebar.toggle(
@@ -504,14 +454,15 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         vol = c["volume"]
         avg = bucket_avg.get(bucket, 0)
         
-        # Visual threshold (for display)
-        threshold_multiplier = st.session_state.threshold_multiplier
-        threshold = avg * threshold_multiplier if avg else 0
-        visual_over = (threshold > 0 and vol > threshold)
+        # Calculate multiplier
+        mult = (vol / avg) if avg > 0 else 0
         
         # Alert trigger (based on alert_multiplier)
-        mult = (vol / avg) if avg > 0 else 0
         alert_trigger = mult >= st.session_state.alert_multiplier
+        
+        # Visual spike indication (using alert_multiplier as threshold)
+        threshold = avg * st.session_state.alert_multiplier if avg else 0
+        visual_over = alert_trigger
         
         spike_diff = f"▲{vol - int(threshold)}" if visual_over else ""
         sentiment = get_sentiment(c)
@@ -549,7 +500,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             "sentiment": sentiment
         }
         
-        # FIXED: Alert based on multiplier (vol/avg >= alert_multiplier)
+        # Alert based on multiplier (vol/avg >= alert_multiplier)
         if idx in last_two_indices and alert_trigger and c.get("complete", True):
             candle_id = f"{name}_{c['time']}"
             if candle_id not in alerted_candles:
@@ -646,9 +597,6 @@ def run_volume_check():
     alerted_candles = load_alerted_candles()
     all_spike_msgs = []
     
-    # Get combined instruments
-    all_instruments = {**DEFAULT_INSTRUMENTS, **st.session_state.custom_instruments}
-    
     if not st.session_state.selected_instruments:
         st.warning("⚠️ No instruments selected. Please choose at least one.")
         return
@@ -674,7 +622,6 @@ def run_volume_check():
             f'<span class="badge">IST: {now_ist}</span>'
             f'<span class="badge neutral">Candle: {"4h" if granularity=="H4" else "15m"}</span>'
             f'<span class="badge neutral">{comparison_type}</span>'
-            f'<span class="badge neutral">Visual Threshold × {st.session_state.threshold_multiplier:.2f}</span>'
             f'<span class="badge neutral">Alert Trigger ≥ {st.session_state.alert_multiplier:.2f}x</span>'
             f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
             f'<span class="badge {"ok" if tele_status=="ON" else "warn"}">Telegram: {tele_status}</span>'
@@ -687,7 +634,7 @@ def run_volume_check():
             st.cache_data.clear()
             st.rerun()
     
-    st.info("💡 **Multiplier** = Volume ÷ Average Volume | **Visual Threshold** for display | **Alert Trigger** for notifications")
+    st.info("💡 **Multiplier** = Volume ÷ Average Volume | Alerts trigger when Multiplier ≥ Alert Trigger")
     
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
@@ -696,7 +643,7 @@ def run_volume_check():
     all_rows_have_data = False
     
     for name in names:
-        code = all_instruments.get(name)
+        code = INSTRUMENTS.get(name)
         if not code:
             st.error(f"❌ Instrument code not found for {name}")
             continue
