@@ -29,7 +29,7 @@ def init_supabase():
 
 supabase: Client = init_supabase()
 
-# ====== THEME/STYLE ====== (Keep existing CSS)
+# ====== THEME/STYLE ======
 BADGE_CSS = """
 <style>
 :root {
@@ -117,7 +117,6 @@ def get_cached_candles(instrument, granularity, start_time, end_time):
         
         return response.data if response.data else []
     except Exception as e:
-        st.warning(f"Cache read error: {e}")
         return []
 
 def save_candles_to_cache(instrument, granularity, candles):
@@ -146,14 +145,14 @@ def save_candles_to_cache(instrument, granularity, candles):
                 'raw_data': json.dumps(c)
             })
         
-        # Upsert (insert or update if exists)
-        supabase.table('candles_cache').upsert(
-            records,
-            on_conflict='instrument,granularity,time'
-        ).execute()
+        if records:
+            supabase.table('candles_cache').upsert(
+                records,
+                on_conflict='instrument,granularity,time'
+            ).execute()
         
     except Exception as e:
-        st.warning(f"Cache write error: {e}")
+        pass
 
 def get_cached_averages(instrument, granularity, bucket_type):
     """Get pre-calculated averages from Supabase"""
@@ -175,7 +174,6 @@ def get_cached_averages(instrument, granularity, bucket_type):
             return json.loads(response.data[0]['averages'])
         return {}
     except Exception as e:
-        st.warning(f"Average cache read error: {e}")
         return {}
 
 def save_averages_to_cache(instrument, granularity, bucket_type, averages):
@@ -197,7 +195,7 @@ def save_averages_to_cache(instrument, granularity, bucket_type, averages):
             on_conflict='instrument,granularity,bucket_type'
         ).execute()
     except Exception as e:
-        st.warning(f"Average cache write error: {e}")
+        pass
 
 # ====== ALERT MEMORY ======
 def load_alerted_candles():
@@ -215,7 +213,6 @@ def load_alerted_candles():
         except:
             pass
     
-    # Fallback to file
     if os.path.exists(ALERT_STATE_FILE):
         try:
             with open(ALERT_STATE_FILE, "r") as f:
@@ -226,11 +223,9 @@ def load_alerted_candles():
 
 def save_alerted_candles(alerted_set):
     """Save to both Supabase and file"""
-    # Save to file
     with open(ALERT_STATE_FILE, "w") as f:
         json.dump(list(alerted_set), f)
     
-    # Save to Supabase
     if supabase:
         try:
             today = datetime.now(IST).date().isoformat()
@@ -244,7 +239,7 @@ def save_alerted_candles(alerted_set):
                 on_conflict='date'
             ).execute()
         except Exception as e:
-            st.warning(f"Alert state save error: {e}")
+            pass
 
 def reset_if_new_day():
     today = datetime.now(IST).date().isoformat()
@@ -254,7 +249,6 @@ def reset_if_new_day():
         if last != today:
             with open(ALERT_STATE_FILE, "w") as f:
                 f.write("[]")
-            # Also clear Supabase
             if supabase:
                 try:
                     supabase.table('alert_state').delete().neq('date', today).execute()
@@ -263,7 +257,7 @@ def reset_if_new_day():
     with open(ALERT_DATE_FILE, "w") as f:
         f.write(today)
 
-# ====== SIDEBAR CONFIG ====== (Keep existing sidebar code)
+# ====== SIDEBAR CONFIG ======
 st.sidebar.title("🔧 Settings")
 
 if "selected_instruments" not in st.session_state:
@@ -336,7 +330,6 @@ st.sidebar.toggle(
     key="skip_weekends"
 )
 
-# Show cache status
 if supabase:
     st.sidebar.success("✅ Supabase Connected")
 else:
@@ -346,7 +339,7 @@ else:
 refresh_ms = st.session_state.refresh_minutes * 60 * 1000
 refresh_count = st_autorefresh(interval=refresh_ms, limit=None, key="volume-refresh")
 
-# ====== TELEGRAM ALERT ====== (Keep existing function)
+# ====== TELEGRAM ALERT ======
 def send_telegram_alert(message):
     if not st.session_state.enable_telegram_alerts:
         return False
@@ -376,7 +369,7 @@ def get_session():
     return s
 
 def fetch_candles_smart(instrument_code, from_time, to_time, granularity="M15"):
-    """Smart fetch: use cache first, only fetch missing data from OANDA"""
+    """Smart fetch: use cache first, fetch missing from OANDA"""
     now_utc = datetime.now(UTC)
     from_time = min(from_time, now_utc)
     to_time = min(to_time, now_utc)
@@ -384,22 +377,43 @@ def fetch_candles_smart(instrument_code, from_time, to_time, granularity="M15"):
     # Try cache first
     cached = get_cached_candles(instrument_code, granularity, from_time, to_time)
     
-    if cached:
-        # Convert cached data back to OANDA format
-        candles = []
-        for c in cached:
-            candles.append({
-                "time": c['time'],
-                "volume": c['volume'],
-                "complete": c['complete'],
-                "mid": {
-                    "o": str(c['open']),
-                    "h": str(c['high']),
-                    "l": str(c['low']),
-                    "c": str(c['close'])
-                }
-            })
+    if cached and len(cached) > 0:
+        last_cached_time = datetime.fromisoformat(cached[-1]['time'].replace('Z', ''))
         
-        # Check if we need recent data (last 30 minutes)
-        if cached:
-            last_cached_time = datetime.fromisoformat(cached[-1]['time'].replace('Z', '+
+        # If cache is recent (within last hour), use it
+        if (now_utc - last_cached_time).total_seconds() < 3600:
+            candles = []
+            for c in cached:
+                candles.append({
+                    "time": c['time'],
+                    "volume": c['volume'],
+                    "complete": c['complete'],
+                    "mid": {
+                        "o": str(c['open']),
+                        "h": str(c['high']),
+                        "l": str(c['low']),
+                        "c": str(c['close'])
+                    }
+                })
+            return candles
+    
+    # Fetch from OANDA
+    params = {
+        "granularity": granularity,
+        "price": "M",
+        "from": from_time.isoformat(),
+        "to": to_time.isoformat()
+    }
+    url = f"{BASE_URL}/accounts/{ACCOUNT_ID}/instruments/{instrument_code}/candles"
+    
+    try:
+        s = get_session()
+        resp = s.get(url, params=params, timeout=20)
+    except Exception as e:
+        st.error(f"❌ Network error for {instrument_code}: {e}")
+        return []
+    
+    if resp.status_code != 200:
+        st.error(f"❌ Failed to fetch {instrument_code} data: {resp.text}")
+        return []
+    
