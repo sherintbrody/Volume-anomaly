@@ -16,31 +16,187 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ====== SUPABASE SETUP ======
+# ====== SUPABASE SETUP (Custom Client - Most Stable) ======
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 
 @st.cache_resource
 def init_supabase():
-    """Initialize Supabase client - cached"""
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            # Create client with explicit options to avoid http2 issues
-            from supabase import create_client, ClientOptions
+    """Initialize custom Supabase client with httpx"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    
+    try:
+        import httpx
+        
+        class SimpleSupabaseClient:
+            def __init__(self, url, key):
+                self.url = url.rstrip('/')
+                self.key = key
+                self.headers = {
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation"
+                }
+                # Create a persistent HTTP client
+                self.client = httpx.Client(timeout=30.0)
             
-            options = ClientOptions(
-                auto_refresh_token=True,
-                persist_session=True,
-            )
+            def table(self, table_name):
+                return SupabaseTable(self.url, table_name, self.headers, self.client)
+        
+        class SupabaseTable:
+            def __init__(self, base_url, table_name, headers, client):
+                self.url = f"{base_url}/rest/v1/{table_name}"
+                self.headers = headers.copy()
+                self.client = client
+                self.filters = {}
+                self.order_by = None
+                self.limit_val = None
+                self.columns = "*"
             
-            return create_client(SUPABASE_URL, SUPABASE_KEY, options)
-        except Exception as e:
-            st.sidebar.error(f"Supabase init error: {e}")
-            return None
-    return None
+            def select(self, columns="*", count=None):
+                self.columns = columns
+                if count:
+                    self.headers['Prefer'] = f"count={count}"
+                return self
+            
+            def eq(self, column, value):
+                self.filters[column] = f"eq.{value}"
+                return self
+            
+            def gte(self, column, value):
+                self.filters[column] = f"gte.{value}"
+                return self
+            
+            def lte(self, column, value):
+                self.filters[column] = f"lte.{value}"
+                return self
+            
+            def neq(self, column, value):
+                self.filters[column] = f"neq.{value}"
+                return self
+            
+            def order(self, column, desc=False):
+                self.order_by = f"{column}.{'desc' if desc else 'asc'}"
+                return self
+            
+            def limit(self, n):
+                self.limit_val = n
+                return self
+            
+            def execute(self):
+                params = {'select': self.columns}
+                
+                for col, filter_val in self.filters.items():
+                    params[col] = filter_val
+                
+                if self.order_by:
+                    params['order'] = self.order_by
+                
+                if self.limit_val:
+                    params['limit'] = self.limit_val
+                
+                try:
+                    response = self.client.get(self.url, headers=self.headers, params=params)
+                    response.raise_for_status()
+                    
+                    class Result:
+                        def __init__(self, data, count=None):
+                            self.data = data
+                            self.count = len(data) if data else 0
+                    
+                    return Result(response.json())
+                except Exception as e:
+                    st.error(f"Supabase query error: {e}")
+                    class Result:
+                        def __init__(self):
+                            self.data = []
+                            self.count = 0
+                    return Result()
+            
+            def insert(self, data):
+                try:
+                    response = self.client.post(
+                        self.url, 
+                        headers=self.headers, 
+                        json=data if isinstance(data, list) else [data]
+                    )
+                    response.raise_for_status()
+                    
+                    class Result:
+                        def __init__(self, data):
+                            self.data = data
+                    
+                    return Result(response.json())
+                except Exception as e:
+                    st.error(f"Supabase insert error: {e}")
+                    class Result:
+                        def __init__(self):
+                            self.data = []
+                    return Result()
+            
+            def upsert(self, data, on_conflict=None):
+                try:
+                    headers = self.headers.copy()
+                    headers['Prefer'] = "resolution=merge-duplicates"
+                    
+                    response = self.client.post(
+                        self.url,
+                        headers=headers,
+                        json=data if isinstance(data, list) else [data]
+                    )
+                    response.raise_for_status()
+                    
+                    class Result:
+                        def __init__(self, data):
+                            self.data = data
+                    
+                    return Result(response.json())
+                except Exception as e:
+                    st.error(f"Supabase upsert error: {e}")
+                    class Result:
+                        def __init__(self):
+                            self.data = []
+                    return Result()
+            
+            def delete(self):
+                try:
+                    params = {}
+                    for col, filter_val in self.filters.items():
+                        params[col] = filter_val
+                    
+                    response = self.client.delete(
+                        self.url,
+                        headers=self.headers,
+                        params=params
+                    )
+                    response.raise_for_status()
+                    
+                    class Result:
+                        def __init__(self):
+                            self.data = []
+                            self.deleted_count = 1
+                    
+                    return Result()
+                except Exception as e:
+                    st.error(f"Supabase delete error: {e}")
+                    class Result:
+                        def __init__(self):
+                            self.data = []
+                            self.deleted_count = 0
+                    return Result()
+        
+        return SimpleSupabaseClient(SUPABASE_URL, SUPABASE_KEY)
+    
+    except ImportError:
+        st.sidebar.warning("⚠️ httpx not installed. Install with: pip install httpx")
+        return None
+    except Exception as e:
+        st.sidebar.error(f"Supabase init error: {e}")
+        return None
 
 supabase = init_supabase()
-
 # ====== THEME/STYLE ======
 BADGE_CSS = """
 <style>
