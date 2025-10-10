@@ -24,10 +24,22 @@ SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 def init_supabase():
     """Initialize Supabase client - cached"""
     if SUPABASE_URL and SUPABASE_KEY:
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
+        try:
+            # Create client with explicit options to avoid http2 issues
+            from supabase import create_client, ClientOptions
+            
+            options = ClientOptions(
+                auto_refresh_token=True,
+                persist_session=True,
+            )
+            
+            return create_client(SUPABASE_URL, SUPABASE_KEY, options)
+        except Exception as e:
+            st.sidebar.error(f"Supabase init error: {e}")
+            return None
     return None
 
-supabase: Client = init_supabase()
+supabase = init_supabase()
 
 # ====== THEME/STYLE ======
 BADGE_CSS = """
