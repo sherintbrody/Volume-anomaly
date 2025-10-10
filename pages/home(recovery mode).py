@@ -291,7 +291,7 @@ def get_sentiment(candle):
     return "🟩" if c > o else "🟥" if c < o else "▪️"
 
 def get_body_percentage(candle):
-    """Calculate the body percentage of a candle (4H only)"""
+    """Calculate the body percentage of a candle"""
     try:
         o = float(candle["mid"]["o"])
         h = float(candle["mid"]["h"])
@@ -467,27 +467,19 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         spike_diff = f"▲{vol - int(threshold)}" if visual_over else ""
         sentiment = get_sentiment(c)
         
-        # Build row based on mode
-        if is_4h_mode:
-            body_pct = get_body_percentage(c)
-            rows.append([
-                t_ist.strftime("%Y-%m-%d %I:%M %p"),
-                display_bucket,
-                f"{float(c['mid']['o']):.1f}",
-                vol,
-                spike_diff,
-                sentiment,
-                body_pct
-            ])
-        else:
-            rows.append([
-                t_ist.strftime("%Y-%m-%d %I:%M %p"),
-                display_bucket,
-                f"{float(c['mid']['o']):.1f}",
-                vol,
-                spike_diff,
-                sentiment
-            ])
+        # Calculate body percentage for both modes
+        body_pct = get_body_percentage(c)
+        
+        # Build row based on mode - now both include body_pct
+        rows.append([
+            t_ist.strftime("%Y-%m-%d %I:%M %p"),
+            display_bucket,
+            f"{float(c['mid']['o']):.1f}",
+            vol,
+            spike_diff,
+            sentiment,
+            body_pct
+        ])
         
         last_summary = {
             "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
@@ -540,6 +532,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}x")
     
+    # Both modes now have the same columns including Body %
     if is_4h_mode:
         columns = [
             "Time (IST)",
@@ -557,23 +550,23 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
             "Open",
             "Volume", 
             "Spike Δ", 
-            "Sentiment"
+            "Sentiment",
+            "Body %"
         ]
     
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
+    # Both modes now include Body % in column_config
     column_config = {
         "Open": st.column_config.NumberColumn(format="%.1f"),
         "Volume": st.column_config.NumberColumn(format="%.0f"),
         "Spike Δ": st.column_config.TextColumn(),
         "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
-    }
-    
-    if is_4h_mode:
-        column_config["Body %"] = st.column_config.TextColumn(
+        "Body %": st.column_config.TextColumn(
             help="Body as % of total range. Higher % = stronger directional move, Lower % = indecision/doji"
         )
+    }
     
     st.dataframe(
         df,
