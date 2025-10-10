@@ -1,5 +1,3 @@
-
-
 import requests, json, os
 import streamlit as st
 from datetime import datetime, timedelta, time
@@ -66,7 +64,6 @@ BADGE_CSS = """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
 
 # ====== CONFIG ======
-# IMPORTANT: Move these to environment variables or .streamlit/secrets.toml
 API_KEY = st.secrets["API_KEY"]
 ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
@@ -84,10 +81,7 @@ headers = {"Authorization": f"Bearer {API_KEY}"}
 ALERT_STATE_FILE = "last_alert_state.json"
 ALERT_DATE_FILE = "last_alert_date.txt"
 
-# How many candles to display in the table
 DISPLAY_ROWS = 13
-
-# Number of trading days to use for averaging
 TRADING_DAYS_FOR_AVERAGE = 21
 
 # ====== ALERT MEMORY ======
@@ -118,7 +112,6 @@ def reset_if_new_day():
 # ====== SIDEBAR CONFIG ======
 st.sidebar.title("🔧 Settings")
 
-# Initialize all session state variables
 if "selected_instruments" not in st.session_state:
     st.session_state.selected_instruments = list(INSTRUMENTS.keys())
 if "refresh_minutes" not in st.session_state:
@@ -132,7 +125,6 @@ if "candle_size" not in st.session_state:
 if "skip_weekends" not in st.session_state:
     st.session_state.skip_weekends = True
 
-# Optional: provide Telegram secrets via Streamlit Cloud
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 
@@ -195,19 +187,32 @@ refresh_count = st_autorefresh(interval=refresh_ms, limit=None, key="volume-refr
 
 # ====== TELEGRAM ALERT ======
 def send_telegram_alert(message):
+    """Send Telegram alert with improved error handling"""
     if not st.session_state.enable_telegram_alerts:
-        return
+        return False
+    
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        st.warning("Telegram is ON but secrets missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
-        return
+        st.warning("⚠️ Telegram is ON but secrets missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
+        return False
+    
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    
     try:
         resp = requests.post(url, data=payload, timeout=10)
-        if resp.status_code != 200:
-            st.error(f"Telegram alert failed: {resp.text}")
+        if resp.status_code == 200:
+            return True
+        else:
+            st.error(f"❌ Telegram alert failed: {resp.text}")
+            return False
     except Exception as e:
-        st.error(f"Telegram alert exception: {e}")
+        st.error(f"❌ Telegram exception: {e}")
+        return False
 
 # ====== OANDA DATA FETCH ======
 @st.cache_resource
@@ -286,18 +291,13 @@ def get_body_percentage(candle):
         l = float(candle["mid"]["l"])
         c = float(candle["mid"]["c"])
         
-        # Calculate body and total range
         body = abs(c - o)
         total_range = h - l
         
-        # Avoid division by zero
         if total_range == 0:
             return "0.0%"
         
-        # Calculate body percentage
         body_pct = (body / total_range) * 100
-        
-        # Return formatted percentage
         return f"{body_pct:.1f}%"
     except:
         return "—"
@@ -322,7 +322,7 @@ def compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekend
         return compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends)
 
 def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
-    """Time-bucket based averaging for 15-minute mode, collecting last N trading days"""
+    """Time-bucket based averaging for 15-minute mode"""
     bucket_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
@@ -365,7 +365,7 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
 def compute_4h_position_averages(code, skip_weekends=True):
-    """Position-based averaging for 4H mode, collecting last N trading days"""
+    """Position-based averaging for 4H mode"""
     position_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
@@ -409,6 +409,7 @@ def compute_4h_position_averages(code, skip_weekends=True):
 
 # ====== CORE PROCESS ======
 def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
+    """Process instrument and detect volume spikes - FIXED VERSION"""
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=st.session_state.skip_weekends)
     now_utc = datetime.now(UTC)
     is_4h_mode = (granularity == "H4")
@@ -423,10 +424,13 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
     
     rows = []
     spikes_last_two = []
-    last_two_candles = candles[-2:] if len(candles) >= 2 else candles
     last_summary = {}
     
-    for c in candles:
+    # Get indices of last two COMPLETE candles
+    complete_candle_indices = [i for i, c in enumerate(candles) if c.get("complete", True)]
+    last_two_indices = set(complete_candle_indices[-2:]) if len(complete_candle_indices) >= 2 else set(complete_candle_indices)
+    
+    for idx, c in enumerate(candles):
         try:
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
         except ValueError:
@@ -445,34 +449,30 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         threshold_multiplier = st.session_state.threshold_multiplier
         threshold = avg * threshold_multiplier if avg else 0
         over = (threshold > 0 and vol > threshold)
-        mult = (vol / threshold) if over and threshold > 0 else (vol / avg if avg else 0)
+        
+        # FIXED: Multiplier is always vol / avg (actual volume ratio)
+        mult = (vol / avg) if avg > 0 else 0
         
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
         sentiment = get_sentiment(c)
         
-        # Build row based on mode
+        # Build row based on mode - REMOVED High, Low, Close columns
         if is_4h_mode:
             body_pct = get_body_percentage(c)
             rows.append([
                 t_ist.strftime("%Y-%m-%d %I:%M %p"),
                 display_bucket,
                 f"{float(c['mid']['o']):.1f}",
-                f"{float(c['mid']['h']):.1f}",
-                f"{float(c['mid']['l']):.1f}",
-                f"{float(c['mid']['c']):.1f}",
                 vol,
                 spike_diff,
                 sentiment,
-                body_pct  # New column for 4H mode
+                body_pct
             ])
         else:
             rows.append([
                 t_ist.strftime("%Y-%m-%d %I:%M %p"),
                 display_bucket,
                 f"{float(c['mid']['o']):.1f}",
-                f"{float(c['mid']['h']):.1f}",
-                f"{float(c['mid']['l']):.1f}",
-                f"{float(c['mid']['c']):.1f}",
                 vol,
                 spike_diff,
                 sentiment
@@ -489,12 +489,18 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             "sentiment": sentiment
         }
         
-        if c in last_two_candles and over:
-            candle_id = f"{name}_{c['time']}_{round(float(c['mid']['o']), 2)}"
+        # FIXED: Check if this candle index is in last two complete candles
+        if idx in last_two_indices and over and c.get("complete", True):
+            candle_id = f"{name}_{c['time']}"
             if candle_id not in alerted_candles:
-                spikes_last_two.append(
-                    f"{name} {t_ist.strftime('%I:%M %p')} — Vol {vol} ({spike_diff}) {sentiment}"
+                # Format spike message with proper multiplier
+                spike_msg = (
+                    f"*{name}* @ {t_ist.strftime('%I:%M %p')}\n"
+                    f"📊 Volume: `{vol:,}` (Avg: `{int(avg):,}`)\n"
+                    f"📈 Multiplier: `{mult:.2f}x` (Threshold: `{threshold_multiplier:.2f}x`)\n"
+                    f"💹 Spike: `{spike_diff}` {sentiment}"
                 )
+                spikes_last_two.append(spike_msg)
                 alerted_candles.add(candle_id)
     
     return rows, spikes_last_two, last_summary
@@ -522,33 +528,35 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         c1.metric("Volume", f"{summary['volume']:,}")
         c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
-        c4.metric("Multiplier", f"{summary['multiplier']:.2f}")
+        c4.metric("Multiplier", f"{summary['multiplier']:.2f}x")
     
-    # Define columns based on mode
+    # UPDATED: Removed High, Low, Close columns
     if is_4h_mode:
         columns = [
             "Time (IST)",
             "Time Range (4H)",
-            "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment", "Body %"  # Added Body %
+            "Open",
+            "Volume", 
+            "Spike Δ", 
+            "Sentiment", 
+            "Body %"
         ]
     else:
         columns = [
             "Time (IST)",
             f"Time Bucket ({bucket_lbl})",
-            "Open", "High", "Low", "Close",
-            "Volume", "Spike Δ", "Sentiment"
+            "Open",
+            "Volume", 
+            "Spike Δ", 
+            "Sentiment"
         ]
     
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
-    # Configure column display
+    # UPDATED: Removed High, Low, Close from column_config
     column_config = {
         "Open": st.column_config.NumberColumn(format="%.1f"),
-        "High": st.column_config.NumberColumn(format="%.1f"),
-        "Low": st.column_config.NumberColumn(format="%.1f"),
-        "Close": st.column_config.NumberColumn(format="%.1f"),
         "Volume": st.column_config.NumberColumn(format="%.0f"),
         "Spike Δ": st.column_config.TextColumn(),
         "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
@@ -614,7 +622,7 @@ def run_volume_check():
             unsafe_allow_html=True,
         )
     with top_r:
-        st.info("Tip: Turn on Telegram alerts in the sidebar to receive spike notifications.")
+        st.info("💡 Multiplier shows Volume / Average Volume ratio")
     
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
@@ -638,31 +646,25 @@ def run_volume_check():
         if spikes:
             all_spike_msgs.extend(spikes)
     
+    # FIXED: Send properly formatted Telegram alerts
     if all_spike_msgs:
-        formatted_msgs = []
-        for raw in all_spike_msgs:
-            try:
-                parts = raw.split(" — Vol ")
-                instrument_time = parts[0].split()
-                instrument = instrument_time[0]
-                time_str = " ".join(instrument_time[1:])
-                vol_part = parts[1]
-                vol_val = vol_part.split(" ")[0]
-                spike_delta = vol_part.split("(")[-1].split(")")[0]
-                sentiment = vol_part.split()[-1]
-                formatted_msgs.append(
-                    f"🔍 Instrument: {instrument}\n"
-                    f"🕒 Time: {time_str}\n"
-                    f"📊 Volume: {vol_val} {spike_delta}\n"
-                    f"📈 Sentiment: {sentiment}"
-                )
-            except:
-                formatted_msgs.append(raw)
-        
         comparison_label = "4H time range" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
-        alert_msg = f"⚡ Volume Spike Alert — {comparison_label}\n\n" + "\n\n".join(formatted_msgs)
+        alert_msg = f"⚡ *Volume Spike Alert* — {comparison_label}\n\n" + "\n\n".join(all_spike_msgs)
+        
+        # Send to Telegram
+        success = send_telegram_alert(alert_msg)
+        
+        # Show success/failure in UI
+        if success:
+            st.success(f"✅ Telegram alert sent! {len(all_spike_msgs)} spike(s) detected.")
+        elif st.session_state.enable_telegram_alerts:
+            st.warning("⚠️ Telegram alert failed to send. Check logs above.")
+        
+        # Always print to console for debugging
+        print("="*50)
+        print("VOLUME SPIKE DETECTED:")
         print(alert_msg)
-        send_telegram_alert(alert_msg)
+        print("="*50)
     else:
         if all_rows_have_data:
             st.info("ℹ️ No spikes in the last two candles.")
