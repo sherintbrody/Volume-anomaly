@@ -634,7 +634,7 @@ def run_volume_check():
             st.cache_data.clear()
             st.rerun()
     
-    st.info("💡 **Multiplier** = Volume ÷ Average Volume | Alerts trigger when Multiplier ≥ Alert Trigger")
+    
     
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
