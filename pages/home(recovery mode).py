@@ -243,8 +243,8 @@ def create_sound_alert():
     return sound_html
     
 # --- Telegram secrets (open keys) ---
-TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+# TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+# TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
 
 def send_telegram_alert(message: str):
     """Send a formatted alert message to Telegram."""
