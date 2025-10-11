@@ -128,8 +128,8 @@ if "skip_weekends" not in st.session_state:
 if "alert_multiplier" not in st.session_state:
     st.session_state.alert_multiplier = 1.618
 
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+# TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+# TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 
 # Instrument Selection
 st.sidebar.multiselect(
