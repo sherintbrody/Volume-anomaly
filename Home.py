@@ -120,7 +120,7 @@ if "refresh_minutes" not in st.session_state:
 if "bucket_choice" not in st.session_state:
     st.session_state.bucket_choice = "1 hour"
 if "enable_telegram_alerts" not in st.session_state:
-    st.session_state.enable_telegram_alerts = True
+    st.session_state.enable_telegram_alerts = False
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"
 if "skip_weekends" not in st.session_state:
