@@ -126,7 +126,7 @@ if "candle_size" not in st.session_state:
 if "skip_weekends" not in st.session_state:
     st.session_state.skip_weekends = True
 if "alert_multiplier" not in st.session_state:
-    st.session_state.alert_multiplier = 1.618
+    st.session_state.alert_multiplier = 2.5
 
 # TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
 # TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
@@ -174,7 +174,7 @@ st.sidebar.toggle(
 st.sidebar.slider(
     "📢 Alert Multiplier (Volume/Avg)",
     min_value=1.0,
-    max_value=3.0,
+    max_value=5.0,
     step=0.1,
     value=st.session_state.alert_multiplier,
     key="alert_multiplier",
