@@ -495,14 +495,14 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         columns = [
             "Time (IST)",
             "Time Range (4H)",
-            "Open", "High", "Low", "Close",
+            
             "Volume", "21-Day Avg", "Threshold", "Actual Mult", "Spike Δ", "Sentiment", "Body %"
         ]
     else:
         columns = [
             "Time (IST)",
             f"Time Bucket ({bucket_lbl})",
-            "Open", "High", "Low", "Close",
+            
             "Volume", "21-Day Avg", "Threshold", "Actual Mult", "Spike Δ", "Sentiment"
         ]
     
