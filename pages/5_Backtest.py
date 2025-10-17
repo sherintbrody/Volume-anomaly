@@ -510,10 +510,7 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     
     # Configure column display
     column_config = {
-        "Open": st.column_config.NumberColumn(format="%.1f"),
-        "High": st.column_config.NumberColumn(format="%.1f"),
-        "Low": st.column_config.NumberColumn(format="%.1f"),
-        "Close": st.column_config.NumberColumn(format="%.1f"),
+        
         "Volume": st.column_config.NumberColumn(format="%d", help="Actual volume for this candle"),
         "21-Day Avg": st.column_config.NumberColumn(format="%d", help="Average volume from previous 21 trading days"),
         "Threshold": st.column_config.NumberColumn(format="%d", help=f"21-Day Avg × {st.session_state.threshold_multiplier} = Spike cutoff"),
