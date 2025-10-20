@@ -511,35 +511,23 @@ def run_backtest_analysis():
         bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
         is_4h_mode = False
     
-    top_l, top_r = st.columns([3, 2])
-    with top_l:
-        st.subheader("📈 Volume Spike Backtesting")
-        date_str = selected_date.strftime("%Y-%m-%d")
-        comparison_type = "Time Range" if is_4h_mode else "Time Bucket"
-        
-        # Build info badges
-        candle_label = "4h" if is_4h_mode else "15m"
-        bucket_label = "4h" if is_4h_mode else st.session_state.bucket_choice
-        
-        info_html = f"""
-        <div class="badges">
-            <span class="badge neutral">Date: {date_str}</span>
-            <span class="badge">Candle: {candle_label}</span>
-            <span class="badge">Bucket: {bucket_label}</span>
-            <span class="badge warn">Threshold × {threshold_multiplier}</span>
-            <span class="badge neutral">21 Trading Days Avg</span>
-        </div>
-        """
-        st.markdown(info_html, unsafe_allow_html=True)
+    st.subheader("📈 Volume Spike Backtesting")
+    date_str = selected_date.strftime("%Y-%m-%d")
     
-    with top_r:
-        st.info(f"""
-        **💡 Spike Condition:**
-        
-        Volume > (21-Day Avg × {threshold_multiplier})
-        
-        Actual Multiplier = Volume ÷ Avg (shown regardless of spike)
-        """)
+    # Build info badges
+    candle_label = "4h" if is_4h_mode else "15m"
+    bucket_label = "4h" if is_4h_mode else st.session_state.bucket_choice
+    
+    info_html = f"""
+    <div class="badges">
+        <span class="badge neutral">Date: {date_str}</span>
+        <span class="badge">Candle: {candle_label}</span>
+        <span class="badge">Bucket: {bucket_label}</span>
+        <span class="badge warn">Threshold × {threshold_multiplier}</span>
+        <span class="badge neutral">21 Trading Days Avg</span>
+    </div>
+    """
+    st.markdown(info_html, unsafe_allow_html=True)
     
     st.divider()
     
@@ -564,8 +552,6 @@ def run_backtest_analysis():
 if run_backtest:
     run_backtest_analysis()
 else:
-    st.info("👈 Configure settings in the sidebar and click **Run Backtest** to analyze historical volume spikes")
-    
     st.markdown("""
     ### 📊 How It Works
     
