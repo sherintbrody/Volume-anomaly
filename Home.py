@@ -130,7 +130,7 @@ if "enable_telegram_alerts" not in st.session_state:
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"
 if "alert_multiplier" not in st.session_state:
-    st.session_state.alert_multiplier = 2.5
+    st.session_state.alert_multiplier = 2.0
 
 # Instrument Selection
 st.sidebar.multiselect(
