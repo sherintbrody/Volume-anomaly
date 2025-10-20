@@ -83,6 +83,9 @@ DISPLAY_ROWS = 13
 # Number of trading days to use for averaging
 TRADING_DAYS_FOR_AVERAGE = 21
 
+# Skip weekends is always ON
+SKIP_WEEKENDS = True
+
 # ====== SIDEBAR CONFIG ======
 st.sidebar.title("🔧 Backtest Settings")
 
@@ -93,8 +96,6 @@ if "bucket_choice" not in st.session_state:
     st.session_state.bucket_choice = "1 hour"
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"
-if "skip_weekends" not in st.session_state:
-    st.session_state.skip_weekends = True
 if "backtest_date" not in st.session_state:
     st.session_state.backtest_date = datetime.now(IST).date() - timedelta(days=1)
 if "threshold_multiplier" not in st.session_state:
@@ -142,13 +143,6 @@ threshold_value = st.sidebar.slider(
     value=st.session_state.threshold_multiplier,
     key="threshold_multiplier",
     help="Spike detected when: Volume > (21-Day Avg × Threshold)"
-)
-
-st.sidebar.toggle(
-    "Skip Weekends in Average",
-    value=st.session_state.skip_weekends,
-    key="skip_weekends",
-    help="When ON, uses only trading days (Mon-Fri) for volume averages"
 )
 
 # Run Backtest Button
@@ -255,14 +249,14 @@ def get_spike_bar(multiplier):
     return pad_display(bar_str, 5)
 
 @st.cache_data(ttl=3600)
-def compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date, skip_weekends=True):
+def compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date):
     """Compute averages for comparison"""
     if granularity == "H4":
-        return compute_4h_position_averages(code, selected_date, skip_weekends)
+        return compute_4h_position_averages(code, selected_date)
     else:
-        return compute_15m_bucket_averages(code, bucket_size_minutes, selected_date, skip_weekends)
+        return compute_15m_bucket_averages(code, bucket_size_minutes, selected_date)
 
-def compute_15m_bucket_averages(code, bucket_size_minutes, selected_date, skip_weekends=True):
+def compute_15m_bucket_averages(code, bucket_size_minutes, selected_date):
     """Time-bucket based averaging for 15-minute mode"""
     bucket_volumes = defaultdict(list)
     
@@ -273,7 +267,7 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, selected_date, skip_w
     while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
         day_ist = selected_date - timedelta(days=days_back)
         
-        if skip_weekends and is_weekend(day_ist):
+        if is_weekend(day_ist):
             days_back += 1
             continue
             
@@ -303,7 +297,7 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, selected_date, skip_w
     
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
-def compute_4h_position_averages(code, selected_date, skip_weekends=True):
+def compute_4h_position_averages(code, selected_date):
     """Position-based averaging for 4H mode"""
     position_volumes = defaultdict(list)
     
@@ -314,7 +308,7 @@ def compute_4h_position_averages(code, selected_date, skip_weekends=True):
     while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
         day_ist = selected_date - timedelta(days=days_back)
         
-        if skip_weekends and is_weekend(day_ist):
+        if is_weekend(day_ist):
             days_back += 1
             continue
             
@@ -347,7 +341,7 @@ def compute_4h_position_averages(code, selected_date, skip_weekends=True):
 # ====== CORE PROCESS ======
 def process_instrument(name, code, bucket_size_minutes, granularity, selected_date, threshold_multiplier):
     """Process instrument for the selected backtest date"""
-    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date, skip_weekends=st.session_state.skip_weekends)
+    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date)
     
     is_4h_mode = (granularity == "H4")
     
@@ -360,11 +354,10 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
     
     candles = fetch_candles(code, start_utc, end_utc, granularity=granularity)
     if not candles:
-        return [], [], {}
+        return [], []
     
     rows = []
     spikes_found = []
-    last_summary = {}
     
     for c in candles:
         try:
@@ -395,7 +388,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
         spike_diff = f"▲{vol - int(threshold)}" if over else ""
         sentiment = get_sentiment(c)
         
-        # Build row based on mode - WITHOUT OHLC
+        # Build row based on mode
         if is_4h_mode:
             body_pct = get_body_percentage(c)
             rows.append([
@@ -421,18 +414,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 sentiment
             ])
         
-        last_summary = {
-            "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
-            "bucket": bucket,
-            "volume": vol,
-            "avg": avg,
-            "threshold": threshold,
-            "actual_multiplier": actual_multiplier,
-            "over": over,
-            "sentiment": sentiment
-        }
-        
-        # Collect all spikes for the day
+        # Collect spikes (not displayed separately anymore, but kept for potential future use)
         if over:
             spikes_found.append({
                 "instrument": name,
@@ -445,10 +427,10 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 "actual_multiplier": actual_multiplier
             })
     
-    return rows, spikes_found, last_summary
+    return rows, spikes_found
 
 # ====== TABLE RENDERING ======
-def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
+def render_card(name, rows, bucket_minutes, is_4h_mode=False):
     st.markdown(f"### {name}", help="Instrument")
     
     if is_4h_mode:
@@ -458,23 +440,13 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         bucket_lbl = format_bucket_label(bucket_minutes)
         comparison_label = f"Bucket: {bucket_lbl}"
     
-    if summary:
-        chips = [
-            f'<span class="badge neutral">{comparison_label}</span>',
-            f'<span class="badge neutral">Last: {summary["time"]}</span>',
-            f'<span class="badge {"ok" if summary["over"] else "neutral"}">Spike: {"Yes" if summary["over"] else "No"}</span>',
-        ]
-        st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric(f"21-Day Avg", f"{summary['avg']:.0f}")
-        c3.metric(f"Threshold ({st.session_state.threshold_multiplier}×)", f"{summary['threshold']:.0f}")
-        c4.metric("Actual Multiplier (Vol/Avg)", f"{summary['actual_multiplier']:.2f}×", 
-                 delta="SPIKE ✓" if summary['over'] else "No Spike",
-                 delta_color="normal" if summary['over'] else "off")
+    # Simple badge display without metrics
+    chips = [
+        f'<span class="badge neutral">{comparison_label}</span>',
+    ]
+    st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
     
-    # Define columns WITHOUT OHLC
+    # Define columns
     if is_4h_mode:
         columns = [
             "Time (IST)",
@@ -525,7 +497,6 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
 def run_backtest_analysis():
     selected_date = st.session_state.backtest_date
     threshold_multiplier = st.session_state.threshold_multiplier
-    all_spike_msgs = []
     
     if not st.session_state.selected_instruments:
         st.warning("⚠️ No instruments selected. Please choose at least one.")
@@ -549,7 +520,6 @@ def run_backtest_analysis():
         # Build info badges
         candle_label = "4h" if is_4h_mode else "15m"
         bucket_label = "4h" if is_4h_mode else st.session_state.bucket_choice
-        weekend_status = "OFF" if st.session_state.skip_weekends else "ON"
         
         info_html = f"""
         <div class="badges">
@@ -558,7 +528,6 @@ def run_backtest_analysis():
             <span class="badge">Bucket: {bucket_label}</span>
             <span class="badge warn">Threshold × {threshold_multiplier}</span>
             <span class="badge neutral">21 Trading Days Avg</span>
-            <span class="badge neutral">Weekends: {weekend_status}</span>
         </div>
         """
         st.markdown(info_html, unsafe_allow_html=True)
@@ -579,7 +548,7 @@ def run_backtest_analysis():
         code = INSTRUMENTS[name]
         
         with st.spinner(f"📊 Analyzing {name}..."):
-            rows, spikes, summary = process_instrument(
+            rows, spikes = process_instrument(
                 name, code, bucket_minutes, granularity, 
                 selected_date, threshold_multiplier
             )
@@ -588,25 +557,8 @@ def run_backtest_analysis():
             st.warning(f"⚠️ No data available for {name} on {date_str}")
             continue
         
-        render_card(name, rows, bucket_minutes, summary, is_4h_mode)
-        
-        # Collect spike messages
-        for spike in spikes:
-            all_spike_msgs.append(
-                f"**{spike['instrument']}** @ {spike['time']}: "
-                f"Vol={spike['volume']:,}, Avg={spike['avg']}, "
-                f"Threshold={spike['threshold']}, {spike['spike_diff']} {spike['sentiment']}"
-            )
-        
+        render_card(name, rows, bucket_minutes, is_4h_mode)
         st.divider()
-    
-    # Summary section
-    if all_spike_msgs:
-        st.success(f"### 🎯 {len(all_spike_msgs)} Spike(s) Detected on {date_str}")
-        for msg in all_spike_msgs:
-            st.markdown(f"- {msg}")
-    else:
-        st.info(f"### ℹ️ No spikes detected on {date_str} with threshold {threshold_multiplier}×")
 
 # ====== MAIN ======
 if run_backtest:
@@ -627,8 +579,5 @@ else:
     - Compares each candle's volume to the 21-day average for that time bucket
     - Flags spikes when: `Volume > (21-Day Avg × Threshold Multiplier)`
     - Shows actual multiplier (Volume/Avg) for all candles
-    
-    **Weekend Handling:**
-    - When enabled, only uses Mon-Fri data for averages
-    - Ensures cleaner comparison by excluding low weekend volumes
+    - Weekends are automatically excluded from averages for cleaner comparisons
     """)
