@@ -84,6 +84,12 @@ ALERT_DATE_FILE = "last_alert_date.txt"
 DISPLAY_ROWS = 13
 TRADING_DAYS_FOR_AVERAGE = 21
 
+# Skip weekends is always ON
+SKIP_WEEKENDS = True
+
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+
 # ====== ALERT MEMORY ======
 def load_alerted_candles():
     if os.path.exists(ALERT_STATE_FILE):
@@ -123,13 +129,8 @@ if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"
-if "skip_weekends" not in st.session_state:
-    st.session_state.skip_weekends = True
 if "alert_multiplier" not in st.session_state:
     st.session_state.alert_multiplier = 2.5
-
-# TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-# TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 
 # Instrument Selection
 st.sidebar.multiselect(
@@ -179,13 +180,6 @@ st.sidebar.slider(
     value=st.session_state.alert_multiplier,
     key="alert_multiplier",
     help="Send alert when Volume ÷ Average ≥ this multiplier"
-)
-
-st.sidebar.toggle(
-    "Skip Weekends in Average",
-    value=st.session_state.skip_weekends,
-    key="skip_weekends",
-    help="When ON, uses only trading days (Mon-Fri) for volume averages"
 )
 
 # ====== AUTO-REFRESH ======
@@ -417,7 +411,7 @@ def compute_4h_position_averages(code, skip_weekends=True):
 # ====== CORE PROCESS ======
 def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
     """Process instrument and detect volume spikes - ALERT BASED ON MULTIPLIER"""
-    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=st.session_state.skip_weekends)
+    bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=SKIP_WEEKENDS)
     now_utc = datetime.now(UTC)
     is_4h_mode = (granularity == "H4")
     
@@ -609,7 +603,7 @@ def run_volume_check():
         now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
         tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
         comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
-        weekends_status = "OFF" if st.session_state.skip_weekends else "ON"
+        
         st.markdown(
             f'<div class="badges">'
             f'<span class="badge">IST: {now_ist}</span>'
@@ -618,7 +612,6 @@ def run_volume_check():
             f'<span class="badge neutral">Alert Trigger ≥ {st.session_state.alert_multiplier:.2f}x</span>'
             f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
             f'<span class="badge {"ok" if tele_status=="ON" else "warn"}">Telegram: {tele_status}</span>'
-            f'<span class="badge {"ok" if st.session_state.skip_weekends else "warn"}">Weekends: {weekends_status}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
