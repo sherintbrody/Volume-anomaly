@@ -99,7 +99,7 @@ if "candle_size" not in st.session_state:
 if "backtest_date" not in st.session_state:
     st.session_state.backtest_date = datetime.now(IST).date() - timedelta(days=1)
 if "threshold_multiplier" not in st.session_state:
-    st.session_state.threshold_multiplier = 1.618
+    st.session_state.threshold_multiplier = 2.0
 
 # Date Picker for Backtesting
 st.sidebar.date_input(
@@ -138,7 +138,7 @@ else:
 threshold_value = st.sidebar.slider(
     "📈 Threshold Multiplier",
     min_value=1.0,
-    max_value=3.0,
+    max_value=5.0,
     step=0.1,
     value=st.session_state.threshold_multiplier,
     key="threshold_multiplier",
