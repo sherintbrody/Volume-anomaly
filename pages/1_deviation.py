@@ -5,13 +5,12 @@ import pytz
 import pandas as pd
 from collections import defaultdict
 import wcwidth
-from streamlit_autorefresh import st_autorefresh
 import numpy as np
 
 # ====== PAGE CONFIG ======
 st.set_page_config(
-    page_title="Volume Spike Dashboard",
-    page_icon="📊",
+    page_title="Volume Spike Backtesting",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -79,77 +78,48 @@ IST = pytz.timezone("Asia/Kolkata")
 UTC = pytz.utc
 headers = {"Authorization": f"Bearer {API_KEY}"}
 
-ALERT_STATE_FILE = "last_alert_state.json"
-ALERT_DATE_FILE = "last_alert_date.txt"
-
+# How many candles to display in the table
 DISPLAY_ROWS = 13
+
+# Number of trading days to use for averaging
 TRADING_DAYS_FOR_AVERAGE = 21
 
 # Skip weekends is always ON
 SKIP_WEEKENDS = True
 
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
-
-# ====== ALERT MEMORY ======
-def load_alerted_candles():
-    if os.path.exists(ALERT_STATE_FILE):
-        try:
-            with open(ALERT_STATE_FILE, "r") as f:
-                return set(json.load(f))
-        except:
-            return set()
-    return set()
-
-def save_alerted_candles(alerted_set):
-    with open(ALERT_STATE_FILE, "w") as f:
-        json.dump(list(alerted_set), f)
-
-def reset_if_new_day():
-    today = datetime.now(IST).date().isoformat()
-    if os.path.exists(ALERT_DATE_FILE):
-        with open(ALERT_DATE_FILE, "r") as f:
-            last = f.read().strip()
-        if last != today:
-            with open(ALERT_STATE_FILE, "w") as f:
-                f.write("[]")
-    with open(ALERT_DATE_FILE, "w") as f:
-        f.write(today)
-
 # ====== SIDEBAR CONFIG ======
-st.sidebar.title("🔧 Settings")
+st.sidebar.title("🔧 Backtest Settings")
 
-# Initialize session state
+# Initialize all session state variables
 if "selected_instruments" not in st.session_state:
     st.session_state.selected_instruments = list(INSTRUMENTS.keys())
-if "refresh_minutes" not in st.session_state:
-    st.session_state.refresh_minutes = 5
 if "bucket_choice" not in st.session_state:
-    st.session_state.bucket_choice = "15 min"
-if "enable_telegram_alerts" not in st.session_state:
-    st.session_state.enable_telegram_alerts = False
+    st.session_state.bucket_choice = "1 hour"
 if "candle_size" not in st.session_state:
     st.session_state.candle_size = "15 min"
-if "sigma_multiplier" not in st.session_state:
-    st.session_state.sigma_multiplier = 2.0
+if "backtest_date" not in st.session_state:
+    st.session_state.backtest_date = datetime.now(IST).date() - timedelta(days=1)
+if "sigma_level" not in st.session_state:
+    st.session_state.sigma_level = 2.0
 
-# Instrument Selection
+# Date Picker for Backtesting
+st.sidebar.date_input(
+    "📅 Select Date to Backtest",
+    value=st.session_state.backtest_date,
+    max_value=datetime.now(IST).date(),
+    key="backtest_date",
+    help="Choose a date to analyze volume spikes using the previous 21 trading days"
+)
+
 st.sidebar.multiselect(
-    "Select Instruments to Monitor",
+    "Select Instruments to Analyze",
     options=list(INSTRUMENTS.keys()),
     default=st.session_state.selected_instruments,
     key="selected_instruments"
 )
 
-st.sidebar.slider(
-    "Auto-refresh interval (minutes)",
-    min_value=1, max_value=15,
-    value=st.session_state.refresh_minutes,
-    key="refresh_minutes"
-)
-
 st.sidebar.radio(
-    "📏 Candle Size",
+    "🕐 Candle Size",
     ["15 min", "4 hour"],
     index=["15 min", "4 hour"].index(st.session_state.candle_size),
     key="candle_size"
@@ -165,56 +135,24 @@ if st.session_state.candle_size == "15 min":
 else:
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
-st.sidebar.markdown("---")
-
-st.sidebar.toggle(
-    "Enable Telegram Alerts",
-    value=st.session_state.enable_telegram_alerts,
-    key="enable_telegram_alerts"
-)
-
-st.sidebar.slider(
+# SIGMA LEVEL SLIDER
+sigma_value = st.sidebar.slider(
     "📊 Sigma Level (Standard Deviations)",
     min_value=1.0,
     max_value=4.0,
     step=0.5,
-    value=st.session_state.sigma_multiplier,
-    key="sigma_multiplier",
-    help="Alert when Volume > (Average + σ × StdDev). Default is 2σ"
+    value=st.session_state.sigma_level,
+    key="sigma_level",
+    help="Spike detected when: Volume > (Mean + σ × StdDev). Default is 2σ"
 )
 
-# ====== AUTO-REFRESH ======
-refresh_ms = st.session_state.refresh_minutes * 60 * 1000
-refresh_count = st_autorefresh(interval=refresh_ms, limit=None, key="volume-refresh")
+# Run Backtest Button
+run_backtest = st.sidebar.button("🔍 Run Backtest", type="primary", use_container_width=True)
 
-# ====== TELEGRAM ALERT ======
-def send_telegram_alert(message):
-    """Send Telegram alert with improved error handling"""
-    if not st.session_state.enable_telegram_alerts:
-        return False
-    
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        st.warning("⚠️ Telegram is ON but secrets missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
-        return False
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    }
-    
-    try:
-        resp = requests.post(url, data=payload, timeout=10)
-        if resp.status_code == 200:
-            return True
-        else:
-            st.error(f"❌ Telegram alert failed: {resp.text}")
-            return False
-    except Exception as e:
-        st.error(f"❌ Telegram exception: {e}")
-        return False
+# Clear cache button for debugging
+if st.sidebar.button("🔄 Clear Cache & Rerun"):
+    st.cache_data.clear()
+    st.rerun()
 
 # ====== OANDA DATA FETCH ======
 @st.cache_resource
@@ -223,12 +161,8 @@ def get_session():
     s.headers.update(headers)
     return s
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
-    now_utc = datetime.now(UTC)
-    from_time = min(from_time, now_utc)
-    to_time = min(to_time, now_utc)
-    
     params = {
         "granularity": granularity,
         "price": "M",
@@ -286,7 +220,7 @@ def get_sentiment(candle):
     return "🟩" if c > o else "🟥" if c < o else "▪️"
 
 def get_body_percentage(candle):
-    """Calculate the body percentage of a candle"""
+    """Calculate the body percentage of a candle (4H only)"""
     try:
         o = float(candle["mid"]["o"])
         h = float(candle["mid"]["h"])
@@ -302,41 +236,28 @@ def get_body_percentage(candle):
         body_pct = (body / total_range) * 100
         return f"{body_pct:.1f}%"
     except:
-        return "—"
+        return "–"
 
-def pad_display(s, width):
-    pad_len = width - sum(wcwidth.wcwidth(ch) for ch in s)
-    return s + " " * max(pad_len, 0)
-
-def get_spike_bar(multiplier):
-    if multiplier < 1.2:
-        return pad_display("", 5)
-    bars = int((multiplier - 1.2) * 5)
-    bar_str = "┃" * max(1, min(bars, 5))
-    return pad_display(bar_str, 5)
-
-@st.cache_data(ttl=600)
-def compute_bucket_statistics(code, bucket_size_minutes, granularity, skip_weekends=True):
-    """Compute averages and standard deviations for comparison"""
+@st.cache_data(ttl=3600)
+def compute_bucket_statistics(code, bucket_size_minutes, granularity, selected_date):
+    """Compute statistics (mean and std dev) for comparison"""
     if granularity == "H4":
-        return compute_4h_position_statistics(code, skip_weekends)
+        return compute_4h_position_statistics(code, selected_date)
     else:
-        return compute_15m_bucket_statistics(code, bucket_size_minutes, skip_weekends)
+        return compute_15m_bucket_statistics(code, bucket_size_minutes, selected_date)
 
-def compute_15m_bucket_statistics(code, bucket_size_minutes, skip_weekends=True):
+def compute_15m_bucket_statistics(code, bucket_size_minutes, selected_date):
     """Time-bucket based statistics for 15-minute mode"""
     bucket_volumes = defaultdict(list)
-    today_ist = datetime.now(IST).date()
-    now_utc = datetime.now(UTC)
     
     trading_days_collected = 0
     days_back = 1
     max_lookback = 60
     
     while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
-        day_ist = today_ist - timedelta(days=days_back)
+        day_ist = selected_date - timedelta(days=days_back)
         
-        if skip_weekends and is_weekend(day_ist):
+        if is_weekend(day_ist):
             days_back += 1
             continue
             
@@ -344,7 +265,7 @@ def compute_15m_bucket_statistics(code, bucket_size_minutes, skip_weekends=True)
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
         
         start_utc = start_ist.astimezone(UTC)
-        end_utc = min(end_ist.astimezone(UTC), now_utc)
+        end_utc = end_ist.astimezone(UTC)
         
         candles = fetch_candles(code, start_utc, end_utc, granularity="M15")
         
@@ -374,20 +295,18 @@ def compute_15m_bucket_statistics(code, bucket_size_minutes, skip_weekends=True)
     
     return stats
 
-def compute_4h_position_statistics(code, skip_weekends=True):
+def compute_4h_position_statistics(code, selected_date):
     """Position-based statistics for 4H mode"""
     position_volumes = defaultdict(list)
-    today_ist = datetime.now(IST).date()
-    now_utc = datetime.now(UTC)
     
     trading_days_collected = 0
     days_back = 1
     max_lookback = 60
     
     while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
-        day_ist = today_ist - timedelta(days=days_back)
+        day_ist = selected_date - timedelta(days=days_back)
         
-        if skip_weekends and is_weekend(day_ist):
+        if is_weekend(day_ist):
             days_back += 1
             continue
             
@@ -395,7 +314,7 @@ def compute_4h_position_statistics(code, skip_weekends=True):
         end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
         
         start_utc = start_ist.astimezone(UTC)
-        end_utc = min(end_ist.astimezone(UTC), now_utc)
+        end_utc = end_ist.astimezone(UTC)
         
         candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
         
@@ -426,29 +345,27 @@ def compute_4h_position_statistics(code, skip_weekends=True):
     return stats
 
 # ====== CORE PROCESS ======
-def process_instrument(name, code, bucket_size_minutes, granularity, alerted_candles):
+def process_instrument(name, code, bucket_size_minutes, granularity, selected_date, sigma_level):
     """Process instrument with standard deviation-based spike detection"""
-    bucket_stats = compute_bucket_statistics(code, bucket_size_minutes, granularity, skip_weekends=SKIP_WEEKENDS)
-    now_utc = datetime.now(UTC)
+    bucket_stats = compute_bucket_statistics(code, bucket_size_minutes, granularity, selected_date)
+    
     is_4h_mode = (granularity == "H4")
     
-    per_candle_minutes = 15 if granularity == "M15" else 240
-    candles_needed = 40 if granularity == "M15" else 26
-    from_time = now_utc - timedelta(minutes=per_candle_minutes * candles_needed)
+    # Fetch data for the selected date
+    start_ist = IST.localize(datetime.combine(selected_date, time(0, 0)))
+    end_ist = IST.localize(datetime.combine(selected_date + timedelta(days=1), time(0, 0)))
     
-    candles = fetch_candles(code, from_time, now_utc, granularity=granularity)
+    start_utc = start_ist.astimezone(UTC)
+    end_utc = end_ist.astimezone(UTC)
+    
+    candles = fetch_candles(code, start_utc, end_utc, granularity=granularity)
     if not candles:
-        return [], [], {}
+        return [], []
     
     rows = []
-    spikes_last_two = []
-    last_summary = {}
+    spikes_found = []
     
-    # Get indices of last two COMPLETE candles
-    complete_candle_indices = [i for i, c in enumerate(candles) if c.get("complete", True)]
-    last_two_indices = set(complete_candle_indices[-2:]) if len(complete_candle_indices) >= 2 else set(complete_candle_indices)
-    
-    for idx, c in enumerate(candles):
+    for c in candles:
         try:
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
         except ValueError:
@@ -464,67 +381,67 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         
         vol = c["volume"]
         stats = bucket_stats.get(bucket, {"mean": 0, "std": 0})
-        avg = stats["mean"]
+        mean = stats["mean"]
         std = stats["std"]
         
-        # Calculate threshold: Average + (sigma_multiplier × StdDev)
-        threshold = avg + (st.session_state.sigma_multiplier * std) if avg > 0 and std > 0 else avg
+        # Threshold = Mean + (sigma_level × StdDev)
+        threshold = mean + (sigma_level * std) if mean > 0 and std > 0 else mean
         
         # Spike detection: Volume > threshold
         is_spike = vol > threshold
         
-        # Calculate z-score for display
-        z_score = ((vol - avg) / std) if std > 0 else 0
+        # Calculate z-score
+        z_score = ((vol - mean) / std) if std > 0 else 0
         
         spike_diff = f"▲{vol - int(threshold):.0f}" if is_spike else ""
         sentiment = get_sentiment(c)
         
-        # Calculate body percentage
-        body_pct = get_body_percentage(c)
+        # Build row based on mode
+        if is_4h_mode:
+            body_pct = get_body_percentage(c)
+            rows.append([
+                t_ist.strftime("%Y-%m-%d %I:%M %p"),
+                display_bucket,
+                vol,
+                int(mean) if mean > 0 else 0,
+                int(std) if std > 0 else 0,
+                int(threshold) if threshold > 0 else 0,
+                f"{z_score:.2f}σ",
+                spike_diff,
+                sentiment,
+                body_pct
+            ])
+        else:
+            rows.append([
+                t_ist.strftime("%Y-%m-%d %I:%M %p"),
+                display_bucket,
+                vol,
+                int(mean) if mean > 0 else 0,
+                int(std) if std > 0 else 0,
+                int(threshold) if threshold > 0 else 0,
+                f"{z_score:.2f}σ",
+                spike_diff,
+                sentiment
+            ])
         
-        # Build row
-        rows.append([
-            t_ist.strftime("%Y-%m-%d %I:%M %p"),
-            display_bucket,
-            f"{float(c['mid']['o']):.1f}",
-            vol,
-            spike_diff,
-            f"{z_score:.2f}σ",
-            sentiment,
-            body_pct
-        ])
-        
-        last_summary = {
-            "time": t_ist.strftime("%Y-%m-%d %I:%M %p"),
-            "bucket": bucket,
-            "volume": vol,
-            "avg": avg,
-            "std": std,
-            "threshold": threshold,
-            "z_score": z_score,
-            "is_spike": is_spike,
-            "sentiment": sentiment
-        }
-        
-        # Alert for last two complete candles if spike detected
-        if idx in last_two_indices and is_spike and c.get("complete", True):
-            candle_id = f"{name}_{c['time']}"
-            if candle_id not in alerted_candles:
-                spike_msg = (
-                    f"*{name}* @ {t_ist.strftime('%I:%M %p')}\n"
-                    f"📊 Volume: `{vol:,}`\n"
-                    f"📈 Mean: `{int(avg):,}` | StdDev: `{int(std):,}`\n"
-                    f"🎯 Threshold: `{int(threshold):,}` (μ + {st.session_state.sigma_multiplier}σ)\n"
-                    f"📍 Z-Score: `{z_score:.2f}σ`\n"
-                    f"💹 Sentiment: {sentiment}"
-                )
-                spikes_last_two.append(spike_msg)
-                alerted_candles.add(candle_id)
+        # Collect spikes
+        if is_spike:
+            spikes_found.append({
+                "instrument": name,
+                "time": t_ist.strftime('%I:%M %p'),
+                "volume": vol,
+                "mean": int(mean),
+                "std": int(std),
+                "threshold": int(threshold),
+                "z_score": z_score,
+                "spike_diff": spike_diff,
+                "sentiment": sentiment
+            })
     
-    return rows, spikes_last_two, last_summary
+    return rows, spikes_found
 
 # ====== TABLE RENDERING ======
-def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
+def render_card(name, rows, bucket_minutes, is_4h_mode=False):
     st.markdown(f"### {name}", help="Instrument")
     
     if is_4h_mode:
@@ -534,31 +451,24 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         bucket_lbl = format_bucket_label(bucket_minutes)
         comparison_label = f"Bucket: {bucket_lbl}"
     
-    if summary:
-        chips = [
-            f'<span class="badge neutral">{comparison_label}</span>',
-            f'<span class="badge neutral">Last: {summary["time"]}</span>',
-            f'<span class="badge {"ok" if summary["is_spike"] else "neutral"}">Spike: {"Yes" if summary["is_spike"] else "No"}</span>',
-            f'<span class="badge neutral">Z-Score: {summary["z_score"]:.2f}σ</span>',
-        ]
-        st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric("Mean (μ)", f"{summary['avg']:.0f}")
-        c3.metric("StdDev (σ)", f"{summary['std']:.0f}")
-        c4.metric("Threshold", f"{summary['threshold']:.0f}", 
-                  help=f"μ + {st.session_state.sigma_multiplier}σ")
+    # Simple badge display
+    chips = [
+        f'<span class="badge neutral">{comparison_label}</span>',
+        f'<span class="badge neutral">μ + {st.session_state.sigma_level}σ threshold</span>',
+    ]
+    st.markdown(f'<div class="badges">{" ".join(chips)}</div>', unsafe_allow_html=True)
     
-    # Updated columns with Z-Score
+    # Define columns
     if is_4h_mode:
         columns = [
             "Time (IST)",
             "Time Range (4H)",
-            "Open",
             "Volume", 
-            "Spike Δ",
-            "Z-Score",
+            "Mean (μ)", 
+            "StdDev (σ)", 
+            "Threshold", 
+            "Z-Score", 
+            "Spike Δ", 
             "Sentiment", 
             "Body %"
         ]
@@ -566,31 +476,36 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         columns = [
             "Time (IST)",
             f"Time Bucket ({bucket_lbl})",
-            "Open",
             "Volume", 
-            "Spike Δ",
-            "Z-Score",
-            "Sentiment",
-            "Body %"
+            "Mean (μ)", 
+            "StdDev (σ)", 
+            "Threshold", 
+            "Z-Score", 
+            "Spike Δ", 
+            "Sentiment"
         ]
     
-    trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
-    df = pd.DataFrame(trimmed_rows, columns=columns)
+    df = pd.DataFrame(rows, columns=columns)
     
+    # Configure column display
     column_config = {
-        "Open": st.column_config.NumberColumn(format="%.1f"),
-        "Volume": st.column_config.NumberColumn(format="%.0f"),
-        "Spike Δ": st.column_config.TextColumn(),
+        "Volume": st.column_config.NumberColumn(format="%d", help="Actual volume for this candle"),
+        "Mean (μ)": st.column_config.NumberColumn(format="%d", help="Average volume from previous 21 trading days"),
+        "StdDev (σ)": st.column_config.NumberColumn(format="%d", help="Standard deviation from previous 21 trading days"),
+        "Threshold": st.column_config.NumberColumn(format="%d", help=f"μ + {st.session_state.sigma_level}σ = Spike cutoff"),
         "Z-Score": st.column_config.TextColumn(help="Standard deviations from mean"),
+        "Spike Δ": st.column_config.TextColumn(help="Volume - Threshold (shown only if spike detected)"),
         "Sentiment": st.column_config.TextColumn(help="🟩 up, 🟥 down, ▪️ flat"),
-        "Body %": st.column_config.TextColumn(
+    }
+    
+    if is_4h_mode:
+        column_config["Body %"] = st.column_config.TextColumn(
             help="Body as % of total range. Higher % = stronger directional move, Lower % = indecision/doji"
         )
-    }
     
     st.dataframe(
         df,
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         height=520,
         column_config=column_config,
@@ -600,15 +515,14 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
     st.download_button(
         label="📥 Export to CSV",
         data=csv,
-        file_name=f"{name}_volume_spikes.csv",
+        file_name=f"{name}_volume_spikes_{st.session_state.backtest_date}.csv",
         mime="text/csv"
     )
 
-# ====== DASHBOARD EXECUTION ======
-def run_volume_check():
-    reset_if_new_day()
-    alerted_candles = load_alerted_candles()
-    all_spike_msgs = []
+# ====== BACKTEST EXECUTION ======
+def run_backtest_analysis():
+    selected_date = st.session_state.backtest_date
+    sigma_level = st.session_state.sigma_level
     
     if not st.session_state.selected_instruments:
         st.warning("⚠️ No instruments selected. Please choose at least one.")
@@ -623,76 +537,77 @@ def run_volume_check():
         bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
         is_4h_mode = False
     
-    top_l, top_r = st.columns([3, 1])
-    with top_l:
-        st.subheader("📊 Volume Anomaly Detector")
-        now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
-        tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
-        comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
+    st.subheader("📈 Volume Spike Backtesting (Statistical)")
+    date_str = selected_date.strftime("%Y-%m-%d")
+    
+    # Build info badges
+    candle_label = "4h" if is_4h_mode else "15m"
+    bucket_label = "4h" if is_4h_mode else st.session_state.bucket_choice
+    
+    info_html = f"""
+    <div class="badges">
+        <span class="badge neutral">Date: {date_str}</span>
+        <span class="badge">Candle: {candle_label}</span>
+        <span class="badge">Bucket: {bucket_label}</span>
+        <span class="badge warn">Threshold: μ + {sigma_level}σ</span>
+        <span class="badge neutral">21 Trading Days Stats</span>
+    </div>
+    """
+    st.markdown(info_html, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Process each instrument
+    all_spikes = []
+    for name in st.session_state.selected_instruments:
+        code = INSTRUMENTS[name]
         
-        st.markdown(
-            f'<div class="badges">'
-            f'<span class="badge">IST: {now_ist}</span>'
-            f'<span class="badge neutral">Candle: {"4h" if granularity=="H4" else "15m"}</span>'
-            f'<span class="badge neutral">{comparison_type}</span>'
-            f'<span class="badge neutral">Spike: μ + {st.session_state.sigma_multiplier}σ</span>'
-            f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
-            f'<span class="badge {"ok" if tele_status=="ON" else "warn"}">Telegram: {tele_status}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with top_r:
-        if st.button("🔄 Refresh Now", use_container_width=True, type="primary"):
-            st.cache_data.clear()
-            st.rerun()
-    
-    names = st.session_state.selected_instruments
-    cols = st.columns(2) if len(names) > 1 else [st.container()]
-    col_idx = 0
-    
-    all_rows_have_data = False
-    
-    for name in names:
-        code = INSTRUMENTS.get(name)
-        if not code:
-            st.error(f"❌ Instrument code not found for {name}")
+        with st.spinner(f"📊 Analyzing {name}..."):
+            rows, spikes = process_instrument(
+                name, code, bucket_minutes, granularity, 
+                selected_date, sigma_level
+            )
+        
+        if not rows:
+            st.warning(f"⚠️ No data available for {name} on {date_str}")
             continue
-            
-        with cols[col_idx]:
-            with st.container(border=True):
-                rows, spikes, summary = process_instrument(name, code, bucket_minutes, granularity, alerted_candles)
-                if rows:
-                    all_rows_have_data = True
-                    render_card(name, rows, bucket_minutes, summary, is_4h_mode)
-                else:
-                    st.warning(f"No recent data for {name}")
         
-        col_idx = (col_idx + 1) % len(cols)
-        
-        if spikes:
-            all_spike_msgs.extend(spikes)
+        render_card(name, rows, bucket_minutes, is_4h_mode)
+        all_spikes.extend(spikes)
+        st.divider()
     
-    # Send Telegram alerts
-    if all_spike_msgs:
-        comparison_label = "4H time range" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
-        alert_msg = f"⚡ *Volume Spike Alert* — {comparison_label}\n\n" + "\n\n".join(all_spike_msgs)
-        
-        success = send_telegram_alert(alert_msg)
-        
-        if success:
-            st.success(f"✅ Telegram alert sent! {len(all_spike_msgs)} spike(s) detected.")
-        elif st.session_state.enable_telegram_alerts:
-            st.warning("⚠️ Telegram alert failed to send. Check logs above.")
-        
-        print("="*50)
-        print("VOLUME SPIKE DETECTED:")
-        print(alert_msg)
-        print("="*50)
-    else:
-        if all_rows_have_data:
-            st.info("ℹ️ No spikes in the last two candles.")
-    
-    save_alerted_candles(alerted_candles)
+    # Summary of spikes
+    if all_spikes:
+        st.success(f"✅ Found {len(all_spikes)} volume spike(s) on {date_str}")
+        spike_summary = pd.DataFrame(all_spikes)
+        st.dataframe(spike_summary, use_container_width=True, hide_index=True)
 
 # ====== MAIN ======
-run_volume_check()
+if run_backtest:
+    run_backtest_analysis()
+else:
+    st.markdown("""
+    ### 📊 Statistical Volume Spike Detection
+    
+    1. **Select a historical date** to analyze
+    2. **Choose instruments** (XAUUSD, NAS100, US30)
+    3. **Pick candle size** (15 min or 4 hour)
+    4. **Set sigma level** (default: 2σ)
+    5. **Run backtest** to see volume spikes using statistical analysis
+    
+    **Spike Detection Formula:**
+    ```
+    Spike = Volume > (μ + n×σ)
+    ```
+    Where:
+    - **μ (mu)** = Mean volume from 21 trading days
+    - **σ (sigma)** = Standard deviation from 21 trading days
+    - **n** = Number of standard deviations (your threshold)
+    
+    **Statistical Significance:**
+    - **1σ**: Captures ~68% of normal volume (many spikes)
+    - **2σ**: Captures ~95% of normal volume (moderate spikes)
+    - **3σ**: Captures ~99.7% of normal volume (rare spikes)
+    
+    Weekends are automatically excluded for cleaner statistical analysis.
+    """)
