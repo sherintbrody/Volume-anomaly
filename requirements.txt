@@ -11,3 +11,4 @@ streamlit-autorefresh
 wcwidth
 pytz
 pandas
+ta
