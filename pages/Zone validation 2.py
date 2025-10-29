@@ -90,8 +90,8 @@ class OANDAClient:
     """Professional OANDA API client with error handling"""
     
     def __init__(self, api_key: str, account_id: str, practice: bool = True):
-        self.api_key = api_key
-        self.account_id = account_id
+        self.api_key = st.secrets["API_KEY"]
+        self.account_id = st.secrets["ACCOUNT_ID"]
         self.base_url = "https://api-fxpractice.oanda.com" if practice else "https://api-fxtrade.oanda.com"
         self.headers = {
             "Authorization": f"Bearer {api_key}",
