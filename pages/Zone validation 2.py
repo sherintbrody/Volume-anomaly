@@ -158,8 +158,9 @@ class OANDAClient:
         except:
             # Return common forex pairs if API fails
             return [
+                "XAU_USD", "US30_USD", "NAS100_USD",
                 "EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "USD_CAD",
-                "NZD_USD", "EUR_GBP", "EUR_JPY", "GBP_JPY", "XAU_USD"
+                "NZD_USD", "EUR_GBP", "EUR_JPY", "GBP_JPY"
             ]
 
 # ============================================
@@ -176,6 +177,10 @@ class ZoneDetector:
         
         # Calculate technical indicators
         self._calculate_indicators()
+    
+    def get_enhanced_dataframe(self):
+        """Return the dataframe with calculated indicators"""
+        return self.df
     
     def _calculate_indicators(self):
         """Calculate all technical indicators"""
@@ -525,21 +530,22 @@ def create_advanced_chart(df: pd.DataFrame, zones: List[Zone], instrument: str, 
         row=2, col=1
     )
     
-    # RSI
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df['rsi'],
-            name='RSI',
-            line=dict(color='#2196F3', width=2)
-        ),
-        row=3, col=1
-    )
-    
-    # RSI levels
-    fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=3, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=3, col=1)
-    fig.add_hline(y=50, line_dash="dash", line_color="gray", opacity=0.3, row=3, col=1)
+    # RSI - check if RSI exists in dataframe
+    if 'rsi' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df['rsi'],
+                name='RSI',
+                line=dict(color='#2196F3', width=2)
+            ),
+            row=3, col=1
+        )
+        
+        # RSI levels
+        fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=3, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=3, col=1)
+        fig.add_hline(y=50, line_dash="dash", line_color="gray", opacity=0.3, row=3, col=1)
     
     # Layout
     fig.update_layout(
@@ -563,38 +569,54 @@ def main():
     st.title("🎯 Professional Supply & Demand Zone Detector")
     st.markdown("*Institutional-Grade Analysis with OANDA Real-Time Data*")
     
+    # Get API credentials from Streamlit secrets
+    try:
+        API_KEY = st.secrets["API_KEY"]
+        ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+        is_practice = True  # Using practice account
+    except:
+        # Fallback to hardcoded values if secrets not configured
+        API_KEY = "b3f49c357df0852d6141377a821e7a67-20514dacb28f665d453d071d57ed67c9"
+        ACCOUNT_ID = "101-001-37134715-001"
+        is_practice = True
+    
+    # Initialize OANDA client
+    client = OANDAClient(API_KEY, ACCOUNT_ID, is_practice)
+    
     # Sidebar Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # API Settings
-        st.subheader("🔐 OANDA API")
-        api_key = st.text_input("API Key", type="password", help="Your OANDA API key")
-        account_id = st.text_input("Account ID", help="Your OANDA account ID")
-        is_practice = st.checkbox("Practice Account", value=True)
-        
-        st.divider()
-        
-        # Instrument Selection
+        # Market Selection
         st.subheader("📊 Market Selection")
         
-        # Initialize client if credentials provided
-        instruments = []
-        if api_key and account_id:
-            try:
-                client = OANDAClient(api_key, account_id, is_practice)
-                instruments = client.get_available_instruments()
-            except:
-                instruments = ["EUR_USD", "GBP_USD", "USD_JPY", "XAU_USD"]
-        else:
-            instruments = ["EUR_USD", "GBP_USD", "USD_JPY", "XAU_USD"]
+        # Primary instruments
+        primary_instruments = ["XAU_USD", "US30_USD", "NAS100_USD"]
+        other_instruments = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "USD_CAD"]
+        all_instruments = primary_instruments + other_instruments
         
-        instrument = st.selectbox("Instrument", instruments, index=0)
+        instrument = st.selectbox(
+            "Select Instrument",
+            all_instruments,
+            index=0,
+            format_func=lambda x: {
+                "XAU_USD": "🥇 Gold (XAU/USD)",
+                "US30_USD": "📈 US30 (Dow Jones)",
+                "NAS100_USD": "💻 NAS100 (Nasdaq)",
+                "EUR_USD": "💶 EUR/USD",
+                "GBP_USD": "💷 GBP/USD",
+                "USD_JPY": "💴 USD/JPY",
+                "AUD_USD": "🇦🇺 AUD/USD",
+                "USD_CAD": "🇨🇦 USD/CAD"
+            }.get(x, x)
+        )
         
+        # Timeframe selection
         timeframe = st.selectbox(
             "Timeframe",
             ["H4", "D"],
-            format_func=lambda x: "4 Hour" if x == "H4" else "Daily"
+            index=0,
+            format_func=lambda x: "⏰ 4 Hour" if x == "H4" else "📅 Daily"
         )
         
         candle_count = st.slider("Historical Candles", 100, 1000, 500)
@@ -634,46 +656,24 @@ def main():
         
         st.divider()
         
+        # Auto-refresh option
+        auto_refresh = st.checkbox("Auto Refresh", value=False)
+        if auto_refresh:
+            refresh_interval = st.slider("Refresh Interval (seconds)", 30, 300, 60)
+            st.info(f"🔄 Auto-refresh every {refresh_interval} seconds")
+        
         analyze_button = st.button("🚀 Analyze Market", type="primary", use_container_width=True)
     
     # Main Content Area
-    if not api_key or not account_id:
-        st.info("👈 Enter your OANDA API credentials in the sidebar to begin")
-        
-        st.markdown("### 📖 Quick Start Guide")
-        st.markdown("""
-        1. **Get OANDA API Access**: Visit [OANDA Developer Portal](https://developer.oanda.com/)
-        2. **Create Practice Account**: Free demo account for testing
-        3. **Generate API Key**: In account settings
-        4. **Configure Settings**: Use sidebar to customize detection
-        5. **Analyze**: Click 'Analyze Market' button
-        """)
-        
-        st.markdown("### ✨ Key Features")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown("**🎯 Smart Detection**")
-            st.markdown("Multi-factor zone analysis")
-        with col2:
-            st.markdown("**📊 Real-Time Data**")
-            st.markdown("Live OANDA market feed")
-        with col3:
-            st.markdown("**💎 Institutional Grade**")
-            st.markdown("Professional quality tools")
-        
-        return
-    
-    # Analysis Section
-    if analyze_button:
+    if analyze_button or auto_refresh:
         with st.spinner(f"🔄 Fetching {instrument} data..."):
-            client = OANDAClient(api_key, account_id, is_practice)
             df = client.get_candles(instrument, timeframe, candle_count)
             
             if df is None or df.empty:
-                st.error("❌ Failed to fetch data. Check your API credentials and network connection.")
+                st.error("❌ Failed to fetch data. Check your network connection.")
                 return
             
-            st.success(f"✅ Loaded {len(df)} candles")
+            st.success(f"✅ Loaded {len(df)} candles for {instrument}")
         
         with st.spinner("🔍 Detecting zones..."):
             config = {
@@ -689,6 +689,7 @@ def main():
             
             detector = ZoneDetector(df, config)
             zones = detector.detect_zones()
+            df_enhanced = detector.get_enhanced_dataframe()
             
             st.success(f"✅ Detected {len(zones)} high-quality zones")
         
@@ -717,11 +718,19 @@ def main():
             st.metric("Avg Strength", f"{avg_strength:.2f}", "Quality")
         
         with col5:
-            st.metric("ATR", f"{df['atr'].iloc[-1]:.5f}", "Volatility")
+            # Get ATR from enhanced dataframe
+            if 'atr' in df_enhanced.columns and not df_enhanced['atr'].empty:
+                current_atr = df_enhanced['atr'].iloc[-1]
+                if pd.notna(current_atr):
+                    st.metric("ATR", f"{current_atr:.5f}", "Volatility")
+                else:
+                    st.metric("ATR", "N/A", "Volatility")
+            else:
+                st.metric("Volume", f"{df['volume'].iloc[-1]:,}", "Activity")
         
         # Chart
         st.subheader("📈 Price Action & Zones")
-        fig = create_advanced_chart(df, zones, instrument, timeframe)
+        fig = create_advanced_chart(df_enhanced, zones, instrument, timeframe)
         st.plotly_chart(fig, use_container_width=True)
         
         # Zone Details
@@ -849,7 +858,7 @@ def main():
         demand_count_below = len([z for z in demand_zones if z.top < current_price])
         
         # RSI
-        current_rsi = df['rsi'].iloc[-1]
+        current_rsi = df_enhanced['rsi'].iloc[-1] if 'rsi' in df_enhanced.columns else 50
         
         # Price position analysis
         recent_high = df['high'].tail(20).max()
@@ -965,29 +974,50 @@ def main():
             else:
                 st.error("Invalid stop loss position")
         
-        # Alert Configuration
-        with st.expander("🔔 Price Alert Setup"):
-            st.markdown("### Configure Price Alerts")
-            st.info("💡 Set alerts to notify when price approaches key zones")
-            
-            alert_zones = st.multiselect(
-                "Select Zones for Alerts",
-                options=range(len(zones)),
-                format_func=lambda i: f"{zones[i].zone_type.upper()} @ {zones[i].bottom:.5f}-{zones[i].top:.5f}",
-                default=[]
-            )
-            
-            if alert_zones:
-                st.success(f"✅ {len(alert_zones)} alert(s) configured")
-                for idx in alert_zones:
-                    zone = zones[idx]
-                    st.write(f"- Alert when price reaches {zone.zone_type} zone: {zone.bottom:.5f} - {zone.top:.5f}")
-            
-            st.markdown("*Note: In production, these alerts would integrate with notification services (Email, Telegram, SMS)*")
-        
         # Footer with timestamp
         st.markdown("---")
-        st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Data source: OANDA | Timeframe: {timeframe}")
+        st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Data source: OANDA | Instrument: {instrument} | Timeframe: {timeframe}")
+        
+        # Auto-refresh
+        if auto_refresh:
+            import time
+            time.sleep(refresh_interval)
+            st.rerun()
+    
+    else:
+        # Welcome screen
+        st.info("👈 Click 'Analyze Market' in the sidebar to begin analysis")
+        
+        st.markdown("### 📖 Quick Start Guide")
+        st.markdown(f"""
+        1. **Select Instrument**: Choose from Gold (XAU/USD), US30, NAS100, or Forex pairs
+        2. **Choose Timeframe**: 4-Hour or Daily charts available
+        3. **Configure Settings**: Adjust detection sensitivity and filters
+        4. **Analyze**: Click 'Analyze Market' button to detect zones
+        5. **Review Results**: Study the zones, metrics, and trading insights
+        """)
+        
+        st.markdown("### ✨ Key Features")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Smart Detection**")
+            st.markdown("Multi-factor zone analysis with institutional-grade algorithms")
+        with col2:
+            st.markdown("**📊 Real-Time Data**")
+            st.markdown("Live OANDA market feed with automatic updates")
+        with col3:
+            st.markdown("**💎 Professional Tools**")
+            st.markdown("Risk management calculator and position sizing")
+        
+        # Market status
+        st.markdown("### 🌍 Market Status")
+        market_status = {
+            "Forex": "Open 24/5",
+            "Gold": "Open 23/5",
+            "Indices": "Check market hours"
+        }
+        for market, status in market_status.items():
+            st.write(f"• **{market}**: {status}")
 
 # ============================================
 # RUN APPLICATION
@@ -998,8 +1028,8 @@ if __name__ == "__main__":
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
     ### 📚 Resources
-    - [OANDA API Docs](https://developer.oanda.com/)
-    - [Supply & Demand Trading Guide](https://www.investopedia.com/articles/trading/09/supply-demand-trading.asp)
+    - [Trading Guide](https://www.investopedia.com/articles/trading/09/supply-demand-trading.asp)
+    - [Risk Management](https://www.investopedia.com/articles/forex/06/riskmanagement.asp)
     
     ### ℹ️ About
     Professional S&D Zone Detector v2.0
