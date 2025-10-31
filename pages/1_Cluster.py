@@ -1,4 +1,3 @@
-
 import requests
 import pandas as pd
 import streamlit as st
@@ -14,7 +13,7 @@ INSTRUMENTS = {
         "base_cluster_pct": 0.15  # 0.15% base for Gold
     },
     "NAS100_USD": {
-        "base_cluster_pct": 0.20  # 0.20% base for NAS100 (adjust instrument symbol as needed)
+        "base_cluster_pct": 0.20  # 0.20% base for NAS100
     }
 }
 
@@ -26,19 +25,20 @@ def fetch_candles(instrument, count=ADR_LOOKBACK_DAYS+1):
     Fetch daily candles for the given instrument from OANDA.
     Returns a DataFrame with open, high, low, close, time.
     """
-    endpoint = f"{OANDA_API_URL}/instruments/{instrument}/candles"
+    endpoint = f"{BASE_URL}/instruments/{instrument}/candles"
     params = {
         "granularity": "D",
         "count": count,
         "price": "M"  # midpoint
     }
     headers = {
-        "Authorization": f"Bearer {API_TOKEN}"
+        "Authorization": f"Bearer {API_KEY}"
     }
     resp = requests.get(endpoint, headers=headers, params=params)
     resp.raise_for_status()
     j = resp.json()
     candles = j["candles"]
+    
     # parse into DataFrame
     rows = []
     for c in candles:
@@ -50,6 +50,7 @@ def fetch_candles(instrument, count=ADR_LOOKBACK_DAYS+1):
         l = float(c["mid"]["l"])
         c_close = float(c["mid"]["c"])
         rows.append({"time": pt, "open": o, "high": h, "low": l, "close": c_close})
+    
     df = pd.DataFrame(rows)
     df = df.sort_values("time")
     return df
@@ -77,39 +78,77 @@ def fetch_current_price(instrument):
     """
     Fetch current mid-price for the instrument.
     """
-    endpoint = f"{OANDA_API_URL}/accounts/{ACCOUNT_ID}/pricing"
+    endpoint = f"{BASE_URL}/accounts/{ACCOUNT_ID}/pricing"
     params = {
         "instruments": instrument
     }
     headers = {
-        "Authorization": f"Bearer {API_TOKEN}"
+        "Authorization": f"Bearer {API_KEY}"
     }
     resp = requests.get(endpoint, headers=headers, params=params)
     resp.raise_for_status()
     j = resp.json()
     price_info = j["prices"][0]
+    
     # Use mid of bid+ask
     bid = float(price_info["bids"][0]["price"])
     ask = float(price_info["asks"][0]["price"])
     mid = (bid + ask) / 2.0
     return mid
 
-# === MAIN ===
-if __name__ == "__main__":
+# === STREAMLIT APP ===
+def main():
+    st.title("ADR & Cluster Range Calculator")
+    st.write(f"Analyzing {ADR_LOOKBACK_DAYS}-day Average Daily Range")
+    
     for instr, meta in INSTRUMENTS.items():
-        print(f"\nInstrument: {instr}")
+        st.subheader(f"📊 {instr}")
+        
         try:
-            df = fetch_candles(instr)
-            adr = compute_adr(df)
-            print(f"  ADR (avg high-low) over last {ADR_LOOKBACK_DAYS} days = {adr:.4f} points")
-
-            current_price = fetch_current_price(instr)
-            print(f"  Current price mid = {current_price:.4f}")
-
-            cluster_pct = meta["base_cluster_pct"]
-            cluster_points, lower, upper = compute_cluster_range(current_price, adr, cluster_pct)
-            print(f"  Using cluster % = {cluster_pct:.2f}% → cluster width = ±{cluster_points:.4f} points")
-            print(f"  Cluster range: Lower = {lower:.4f}, Upper = {upper:.4f}")
-
+            with st.spinner(f"Fetching data for {instr}..."):
+                # Fetch candles and compute ADR
+                df = fetch_candles(instr)
+                adr = compute_adr(df)
+                
+                # Get current price
+                current_price = fetch_current_price(instr)
+                
+                # Compute cluster range
+                cluster_pct = meta["base_cluster_pct"]
+                cluster_points, lower, upper = compute_cluster_range(current_price, adr, cluster_pct)
+            
+            # Display results
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Current Price", f"{current_price:.4f}")
+            
+            with col2:
+                st.metric("ADR (points)", f"{adr:.4f}")
+            
+            with col3:
+                st.metric("Cluster %", f"{cluster_pct:.2f}%")
+            
+            st.write("**Cluster Range:**")
+            col4, col5, col6 = st.columns(3)
+            
+            with col4:
+                st.metric("Lower Bound", f"{lower:.4f}")
+            
+            with col5:
+                st.metric("Cluster Width", f"±{cluster_points:.4f}")
+            
+            with col6:
+                st.metric("Upper Bound", f"{upper:.4f}")
+            
+            # Show recent price data
+            with st.expander(f"View Recent Price Data for {instr}"):
+                st.dataframe(df.tail(10))
+            
+            st.divider()
+            
         except Exception as e:
-            print("  Error processing instrument:", e)
+            st.error(f"Error processing {instr}: {str(e)}")
+
+if __name__ == "__main__":
+    main()
