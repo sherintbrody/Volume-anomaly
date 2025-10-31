@@ -10,10 +10,16 @@ BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 INSTRUMENTS = {
     "XAU_USD": {
-        "base_cluster_pct": 0.15  # 0.15% base for Gold
+        "base_cluster_pct": 0.15,  # 0.15% base for Gold
+        "display_name": "Gold (XAU/USD)"
     },
     "NAS100_USD": {
-        "base_cluster_pct": 0.20  # 0.20% base for NAS100
+        "base_cluster_pct": 0.20,  # 0.20% base for NAS100
+        "display_name": "NASDAQ 100"
+    },
+    "US30_USD": {
+        "base_cluster_pct": 0.18,  # 0.18% base for US30 (Dow Jones)
+        "display_name": "Dow Jones 30"
     }
 }
 
@@ -96,59 +102,140 @@ def fetch_current_price(instrument):
     mid = (bid + ask) / 2.0
     return mid
 
+def get_instrument_emoji(instrument):
+    """Return appropriate emoji for each instrument"""
+    emojis = {
+        "XAU_USD": "🥇",
+        "NAS100_USD": "💹",
+        "US30_USD": "📈"
+    }
+    return emojis.get(instrument, "📊")
+
 # === STREAMLIT APP ===
 def main():
-    st.title("ADR & Cluster Range Calculator")
+    st.set_page_config(page_title="ADR & Cluster Calculator", page_icon="📊", layout="wide")
+    
+    st.title("📊 ADR & Cluster Range Calculator")
     st.write(f"Analyzing {ADR_LOOKBACK_DAYS}-day Average Daily Range")
     
-    for instr, meta in INSTRUMENTS.items():
-        st.subheader(f"📊 {instr}")
-        
-        try:
-            with st.spinner(f"Fetching data for {instr}..."):
-                # Fetch candles and compute ADR
-                df = fetch_candles(instr)
-                adr = compute_adr(df)
+    # Add refresh button
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("🔄 Refresh Data"):
+            st.rerun()
+    
+    st.divider()
+    
+    # Create tabs for different instruments
+    tab_names = [f"{get_instrument_emoji(instr)} {meta['display_name']}" 
+                 for instr, meta in INSTRUMENTS.items()]
+    tabs = st.tabs(tab_names)
+    
+    for tab, (instr, meta) in zip(tabs, INSTRUMENTS.items()):
+        with tab:
+            try:
+                with st.spinner(f"Fetching data for {meta['display_name']}..."):
+                    # Fetch candles and compute ADR
+                    df = fetch_candles(instr)
+                    adr = compute_adr(df)
+                    
+                    # Get current price
+                    current_price = fetch_current_price(instr)
+                    
+                    # Compute cluster range
+                    cluster_pct = meta["base_cluster_pct"]
+                    cluster_points, lower, upper = compute_cluster_range(current_price, adr, cluster_pct)
                 
-                # Get current price
-                current_price = fetch_current_price(instr)
+                # Display main metrics
+                st.subheader(f"{meta['display_name']} ({instr})")
                 
-                # Compute cluster range
-                cluster_pct = meta["base_cluster_pct"]
-                cluster_points, lower, upper = compute_cluster_range(current_price, adr, cluster_pct)
-            
-            # Display results
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Current Price", f"{current_price:.4f}")
-            
-            with col2:
-                st.metric("ADR (points)", f"{adr:.4f}")
-            
-            with col3:
-                st.metric("Cluster %", f"{cluster_pct:.2f}%")
-            
-            st.write("**Cluster Range:**")
-            col4, col5, col6 = st.columns(3)
-            
-            with col4:
-                st.metric("Lower Bound", f"{lower:.4f}")
-            
-            with col5:
-                st.metric("Cluster Width", f"±{cluster_points:.4f}")
-            
-            with col6:
-                st.metric("Upper Bound", f"{upper:.4f}")
-            
-            # Show recent price data
-            with st.expander(f"View Recent Price Data for {instr}"):
-                st.dataframe(df.tail(10))
-            
-            st.divider()
-            
-        except Exception as e:
-            st.error(f"Error processing {instr}: {str(e)}")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Current Price", f"{current_price:,.2f}")
+                
+                with col2:
+                    st.metric("ADR (points)", f"{adr:,.2f}")
+                
+                with col3:
+                    st.metric("Cluster %", f"{cluster_pct:.2f}%")
+                
+                with col4:
+                    st.metric("Cluster Width", f"±{cluster_points:,.2f}")
+                
+                # Display cluster range
+                st.write("### 🎯 Cluster Range")
+                col5, col6, col7 = st.columns(3)
+                
+                with col5:
+                    delta_lower = current_price - lower
+                    st.metric("Lower Bound", f"{lower:,.2f}", 
+                             delta=f"-{delta_lower:,.2f}", delta_color="inverse")
+                
+                with col6:
+                    st.metric("Current Price", f"{current_price:,.2f}")
+                
+                with col7:
+                    delta_upper = upper - current_price
+                    st.metric("Upper Bound", f"{upper:,.2f}", 
+                             delta=f"+{delta_upper:,.2f}", delta_color="inverse")
+                
+                # Progress bar showing position within cluster
+                progress = (current_price - lower) / (upper - lower)
+                st.progress(progress, text=f"Price position within cluster: {progress*100:.1f}%")
+                
+                # Show recent price data
+                with st.expander(f"📋 View Recent Price Data"):
+                    # Add daily range column
+                    display_df = df.tail(10).copy()
+                    display_df['daily_range'] = display_df['high'] - display_df['low']
+                    display_df = display_df[['time', 'open', 'high', 'low', 'close', 'daily_range']]
+                    display_df['time'] = display_df['time'].dt.strftime('%Y-%m-%d')
+                    
+                    st.dataframe(
+                        display_df.style.format({
+                            'open': '{:,.2f}',
+                            'high': '{:,.2f}',
+                            'low': '{:,.2f}',
+                            'close': '{:,.2f}',
+                            'daily_range': '{:,.2f}'
+                        }),
+                        use_container_width=True
+                    )
+                
+                # Add statistics
+                with st.expander(f"📊 Statistics"):
+                    col8, col9, col10 = st.columns(3)
+                    
+                    with col8:
+                        st.write("**Daily Range Stats**")
+                        st.write(f"Min: {df['range'].min():,.2f}")
+                        st.write(f"Max: {df['range'].max():,.2f}")
+                        st.write(f"Std Dev: {df['range'].std():,.2f}")
+                    
+                    with col9:
+                        st.write("**ADR as % of Price**")
+                        adr_pct = (adr / current_price) * 100
+                        st.write(f"ADR/Price: {adr_pct:.2f}%")
+                        cluster_pct_of_price = (cluster_points / current_price) * 100
+                        st.write(f"Cluster/Price: {cluster_pct_of_price:.3f}%")
+                    
+                    with col10:
+                        st.write("**Recent Performance**")
+                        last_close = df.iloc[-1]['close']
+                        prev_close = df.iloc[-2]['close'] if len(df) > 1 else last_close
+                        change = last_close - prev_close
+                        change_pct = (change / prev_close) * 100
+                        st.write(f"Last Change: {change:+,.2f}")
+                        st.write(f"Last Change %: {change_pct:+.2f}%")
+                
+            except Exception as e:
+                st.error(f"❌ Error processing {meta['display_name']}: {str(e)}")
+                st.info("Please check your API credentials and instrument availability.")
+
+    # Add footer with timestamp
+    st.divider()
+    st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 if __name__ == "__main__":
     main()
