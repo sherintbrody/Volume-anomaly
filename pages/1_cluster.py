@@ -4,9 +4,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # === CONFIG ===
-API_TOKEN = "YOUR_OANDA_API_TOKEN_HERE"
-ACCOUNT_ID = "YOUR_ACCOUNT_ID_HERE"
-OANDA_API_URL = "https://api-fxpractice.oanda.com/v3"  # or live URL if live account
+API_KEY = st.secrets["API_KEY"]
+ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
+BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 INSTRUMENTS = {
     "XAU_USD": {
