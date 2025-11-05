@@ -32,7 +32,6 @@ INSTRUMENTS = {
     "GOLD": "XAU_USD",
     "NAS100": "NAS100_USD",
     "US30": "US30_USD",
-    
 }
 
 # Price source (Mid, to match your reference behavior)
@@ -48,6 +47,9 @@ BADGE_CSS = """
 }
 .badge.neutral {
   background: rgba(148,163,184,.12); color:#334155; border-color: rgba(148,163,184,.25);
+}
+.badge.demark {
+  background: rgba(168,85,247,.12); color:#7c3aed; border-color: rgba(168,85,247,.25);
 }
 </style>
 """
@@ -92,7 +94,6 @@ def fetch_last_completed_candle(instrument, granularity="D"):
     return o, h, l, c_close, c["time"][:10]
 
 # 🔁 Prior completed candle strictly before a selected date
-# Uses to=selected_date 00:00Z and count=1 to get the previous D/W candle
 def fetch_prior_candle_before_date(instrument, granularity, selected_date):
     if granularity == "D":
         params = {"granularity": "D", "price": PRICE_TYPE, "to": iso_midnight_utc(selected_date), "count": 1}
@@ -132,7 +133,7 @@ def fetch_prior_candle_before_date(instrument, granularity, selected_date):
         raise ValueError(f"No prior weekly candle found before {selected_date} for {instrument}")
 
 # 📊 Pivot Logic (Classic)
-def calculate_pivots(high, low, close):
+def calculate_pivots_classic(high, low, close):
     pivot = (high + low + close) / 3
     r1 = 2 * pivot - low
     r2 = pivot + (high - low)
@@ -140,16 +141,54 @@ def calculate_pivots(high, low, close):
     s1 = 2 * pivot - high
     s2 = pivot - (high - low)
     s3 = low - 2 * (high - pivot)
-    return round(r3, 4), round(r2, 4), round(r1, 4), round(pivot, 4), round(s1, 4), round(s2, 4), round(s3, 4)
+    return {
+        "R3": round(r3, 4),
+        "R2": round(r2, 4),
+        "R1": round(r1, 4),
+        "Pivot": round(pivot, 4),
+        "S1": round(s1, 4),
+        "S2": round(s2, 4),
+        "S3": round(s3, 4)
+    }
+
+# 📊 Pivot Logic (Demark)
+def calculate_pivots_demark(open_price, high, low, close):
+    # Determine X based on relationship between Close and Open
+    if close < open_price:
+        x = high + 2 * low + close
+    elif close > open_price:
+        x = 2 * high + low + close
+    else:  # close == open_price
+        x = high + low + 2 * close
+    
+    pivot = x / 4
+    r1 = x / 2 - low
+    s1 = x / 2 - high
+    
+    return {
+        "R1": round(r1, 4),
+        "Pivot": round(pivot, 4),
+        "S1": round(s1, 4)
+    }
 
 # 🧾 Log to CSV
-def log_to_csv(name, date, o, h, l, c, pivots):
+def log_to_csv(name, date, o, h, l, c, pivots, pivot_type):
     file_exists = os.path.exists(LOG_FILE)
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Name","Date","Open","High","Low","Close","R3","R2","R1","Pivot","S1","S2","S3"])
-        writer.writerow([name, date, o, h, l, c] + list(pivots))
+            writer.writerow(["Name","Date","Type","Open","High","Low","Close","R3","R2","R1","Pivot","S1","S2","S3"])
+        
+        if pivot_type == "Classic":
+            row = [name, date, pivot_type, o, h, l, c, 
+                   pivots["R3"], pivots["R2"], pivots["R1"], 
+                   pivots["Pivot"], pivots["S1"], pivots["S2"], pivots["S3"]]
+        else:  # Demark
+            row = [name, date, pivot_type, o, h, l, c, 
+                   "", "", pivots["R1"], 
+                   pivots["Pivot"], pivots["S1"], "", ""]
+        
+        writer.writerow(row)
 
 def fmt_val(v, d=4):
     try:
@@ -174,15 +213,17 @@ def render_pivot_levels_native(rows, d=4):
         st.code(all_text, language="text")
 
 # 🚀 Run Pivot Calculation (modern UI)
-def run_pivot(granularity="D", custom_date=None, selected_names=None, decimals=4):
+def run_pivot(granularity="D", custom_date=None, selected_names=None, decimals=4, pivot_type="Classic"):
     today = datetime.now(timezone.utc).date()
     label = "Daily" if granularity == "D" else "Weekly"
     pivot_date = custom_date if custom_date else today
 
     # Header + badges
     st.subheader("📈 Pivot Dashboard")
+    badge_class = "badge demark" if pivot_type == "Demark" else "badge"
     st.markdown(
         f'<span class="badge">Pivot date: {pivot_date}</span>'
+        f'<span class="{badge_class}">Type: {pivot_type}</span>'
         f'<span class="badge neutral">Timeframe: {label}</span>'
         f'<span class="badge neutral">Price: {PRICE_TYPE}</span>'
         f'<span class="badge neutral">Decimals: {decimals}</span>',
@@ -202,7 +243,25 @@ def run_pivot(granularity="D", custom_date=None, selected_names=None, decimals=4
             else:
                 o, h, l, c, used_date = fetch_last_completed_candle(symbol, granularity)
 
-            r3, r2, r1, p, s1, s2, s3 = calculate_pivots(h, l, c)
+            # Calculate pivots based on selected type
+            if pivot_type == "Classic":
+                pivots = calculate_pivots_classic(h, l, c)
+                pivot_rows = [
+                    ("R3", pivots["R3"]), 
+                    ("R2", pivots["R2"]), 
+                    ("R1", pivots["R1"]), 
+                    ("Pivot", pivots["Pivot"]), 
+                    ("S1", pivots["S1"]), 
+                    ("S2", pivots["S2"]), 
+                    ("S3", pivots["S3"])
+                ]
+            else:  # Demark
+                pivots = calculate_pivots_demark(o, h, l, c)
+                pivot_rows = [
+                    ("R1", pivots["R1"]), 
+                    ("Pivot", pivots["Pivot"]), 
+                    ("S1", pivots["S1"])
+                ]
 
             # Card-style section (bordered container)
             with st.container(border=True):
@@ -217,16 +276,22 @@ def run_pivot(granularity="D", custom_date=None, selected_names=None, decimals=4
                 m4.metric("Close", fmt_val(c, decimals), delta=f"{delta:+.{decimals}f}")
 
                 st.markdown("#### 📌 Pivot Levels")
-                rows = [("R3", r3), ("R2", r2), ("R1", r1), ("Pivot", p), ("S1", s1), ("S2", s2), ("S3", s3)]
-                render_pivot_levels_native(rows, d=decimals)
+                render_pivot_levels_native(pivot_rows, d=decimals)
 
             # Collect for export and logging
-            results.append({
-                "Name": name, "CandleDate": used_date,
-                "Open": o, "High": h, "Low": l, "Close": c,
-                "R3": r3, "R2": r2, "R1": r1, "Pivot": p, "S1": s1, "S2": s2, "S3": s3
-            })
-            log_to_csv(name, used_date, o, h, l, c, (r3, r2, r1, p, s1, s2, s3))
+            result = {
+                "Name": name, 
+                "CandleDate": used_date,
+                "Type": pivot_type,
+                "Open": o, 
+                "High": h, 
+                "Low": l, 
+                "Close": c,
+            }
+            result.update(pivots)
+            results.append(result)
+            
+            log_to_csv(name, used_date, o, h, l, c, pivots, pivot_type)
 
         except Exception as e:
             st.error(f"{name}: Failed — {e}")
@@ -237,7 +302,7 @@ def run_pivot(granularity="D", custom_date=None, selected_names=None, decimals=4
         st.download_button(
             "⬇️ Download pivots (CSV)",
             data=df.to_csv(index=False),
-            file_name=f"pivots_{label.lower()}_{pivot_date}.csv",
+            file_name=f"pivots_{pivot_type.lower()}_{label.lower()}_{pivot_date}.csv",
             mime="text/csv",
             use_container_width=True,
         )
@@ -249,7 +314,30 @@ def view_logs():
         return
     try:
         df = pd.read_csv(LOG_FILE)
+        
+        # Add filters
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if "Name" in df.columns:
+                names_filter = st.multiselect("Filter by Instrument", options=df["Name"].unique(), default=df["Name"].unique())
+                df = df[df["Name"].isin(names_filter)]
+        with col2:
+            if "Type" in df.columns:
+                type_filter = st.multiselect("Filter by Type", options=df["Type"].unique(), default=df["Type"].unique())
+                df = df[df["Type"].isin(type_filter)]
+        with col3:
+            if "Date" in df.columns:
+                st.write(f"Total records: {len(df)}")
+        
         st.dataframe(df, use_container_width=True)
+        
+        # Download filtered logs
+        st.download_button(
+            "⬇️ Download logs (CSV)",
+            data=df.to_csv(index=False),
+            file_name="pivot_logs_filtered.csv",
+            mime="text/csv",
+        )
     except Exception as e:
         st.error(f"Failed to read logs: {e}")
 
@@ -258,6 +346,14 @@ st.sidebar.title("📈 Pivot Dashboard")
 action = st.sidebar.radio("Choose Action", ["Calculate Pivots", "View Logs"])
 
 if action == "Calculate Pivots":
+    # Pivot Type Selection
+    pivot_type = st.sidebar.radio(
+        "Pivot Type", 
+        ["Classic", "Demark"], 
+        horizontal=True,
+        help="Classic: 7 levels (R3-R1, Pivot, S1-S3) | Demark: 3 levels (R1, Pivot, S1)"
+    )
+    
     timeframe = st.sidebar.radio("Select Timeframe", ["Daily", "Weekly"], horizontal=True)
     granularity = "D" if timeframe == "Daily" else "W"
 
@@ -274,6 +370,21 @@ if action == "Calculate Pivots":
     # Decimals control
     decimals = st.sidebar.slider("Decimals", 2, 6, 4, help="Number of decimals to display")
 
-    run_pivot(granularity, custom_date=custom_date, selected_names=selected_names, decimals=decimals)
+    # Info about pivot types
+    with st.sidebar.expander("ℹ️ About Pivot Types"):
+        st.markdown("""
+        **Classic Pivots:**
+        - Standard pivot calculation
+        - 7 levels: R3, R2, R1, Pivot, S1, S2, S3
+        - Based on High, Low, Close
+        
+        **Demark Pivots:**
+        - Developed by Tom DeMark
+        - 3 levels: R1, Pivot, S1
+        - Considers Open-Close relationship
+        - Often more responsive to trends
+        """)
+
+    run_pivot(granularity, custom_date=custom_date, selected_names=selected_names, decimals=decimals, pivot_type=pivot_type)
 else:
     view_logs()
