@@ -28,10 +28,11 @@ LOG_FILE = "pivot_log.csv"
 
 # 📈 Instruments
 INSTRUMENTS = {
+    "USOIL": "WTICO_USD",
     "GOLD": "XAU_USD",
     "NAS100": "NAS100_USD",
     "US30": "US30_USD",
-    "USOIL": "WTICO_USD",
+    
 }
 
 # Price source (Mid, to match your reference behavior)
