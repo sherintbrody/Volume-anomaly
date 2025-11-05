@@ -70,10 +70,9 @@ ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
 INSTRUMENTS = {
-    "US30": "US30_USD",
+    "USOIL": "WTICO_USD",
     "XAUUSD": "XAU_USD",
     "NAS100": "NAS100_USD",
-    "USOIL": "WTICO_USD",
     "US30": "US30_USD"
 }
 
