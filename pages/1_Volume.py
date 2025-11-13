@@ -1,4 +1,3 @@
-
 import requests, json, os
 import streamlit as st
 from datetime import datetime, timedelta, time
@@ -151,8 +150,8 @@ st.sidebar.slider(
 
 st.sidebar.radio(
     "📏 Candle Size",
-    ["15 min", "4 hour"],
-    index=["15 min", "4 hour"].index(st.session_state.candle_size),
+    ["15 min", "2 hour", "4 hour"],
+    index=["15 min", "2 hour", "4 hour"].index(st.session_state.candle_size),
     key="candle_size"
 )
 
@@ -163,7 +162,9 @@ if st.session_state.candle_size == "15 min":
         index=["15 min", "30 min", "1 hour"].index(st.session_state.bucket_choice),
         key="bucket_choice"
     )
-else:
+elif st.session_state.candle_size == "2 hour":
+    st.sidebar.caption("🕒 Comparison: By candle position (1st-12th of day)")
+else:  # 4 hour
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
 st.sidebar.markdown("---")
@@ -257,21 +258,28 @@ def get_time_bucket(dt_ist, bucket_size_minutes):
     bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
     return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
 
+def get_2h_time_range(dt_ist):
+    """Get the actual 2-hour time range starting from the candle's opening time"""
+    end_time = dt_ist + timedelta(hours=2)
+    return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
+
 def get_4h_time_range(dt_ist):
     """Get the actual 4-hour time range starting from the candle's opening time"""
     end_time = dt_ist + timedelta(hours=4)
     return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
 
-def get_candle_position_in_day(dt_ist):
-    """Get the position of a 4H candle in the day (1st, 2nd, 3rd, etc.)"""
+def get_candle_position_in_day(dt_ist, hours_per_candle):
+    """Get the position of a candle in the day (1st, 2nd, 3rd, etc.)"""
     day_start = dt_ist.replace(hour=0, minute=0, second=0, microsecond=0)
     hours_since_start = (dt_ist - day_start).total_seconds() / 3600
-    position = int(hours_since_start // 4) + 1
+    position = int(hours_since_start // hours_per_candle) + 1
     return f"Candle #{position}"
 
 def format_bucket_label(minutes):
     if minutes == 240:
         return "4 hour"
+    elif minutes == 120:
+        return "2 hour"
     elif minutes % 60 == 0:
         h = minutes // 60
         return f"{h} hour" if h == 1 else f"{h} hours"
@@ -320,7 +328,9 @@ def get_spike_bar(multiplier):
 def compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=True):
     """Compute averages for comparison"""
     if granularity == "H4":
-        return compute_4h_position_averages(code, skip_weekends)
+        return compute_hourly_position_averages(code, 4, "H4", skip_weekends)
+    elif granularity == "H2":
+        return compute_hourly_position_averages(code, 2, "H2", skip_weekends)
     else:
         return compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends)
 
@@ -367,8 +377,8 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, skip_weekends=True):
     
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
 
-def compute_4h_position_averages(code, skip_weekends=True):
-    """Position-based averaging for 4H mode"""
+def compute_hourly_position_averages(code, hours_per_candle, granularity, skip_weekends=True):
+    """Position-based averaging for 2H and 4H modes"""
     position_volumes = defaultdict(list)
     today_ist = datetime.now(IST).date()
     now_utc = datetime.now(UTC)
@@ -390,7 +400,7 @@ def compute_4h_position_averages(code, skip_weekends=True):
         start_utc = start_ist.astimezone(UTC)
         end_utc = min(end_ist.astimezone(UTC), now_utc)
         
-        candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
+        candles = fetch_candles(code, start_utc, end_utc, granularity=granularity)
         
         if candles:
             trading_days_collected += 1
@@ -403,7 +413,12 @@ def compute_4h_position_averages(code, skip_weekends=True):
                 except ValueError:
                     t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
                 t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-                time_range = get_4h_time_range(t_ist)
+                
+                if hours_per_candle == 2:
+                    time_range = get_2h_time_range(t_ist)
+                else:  # 4 hours
+                    time_range = get_4h_time_range(t_ist)
+                    
                 position_volumes[time_range].append(c["volume"])
         
         days_back += 1
@@ -415,10 +430,19 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
     """Process instrument and detect volume spikes - ALERT BASED ON MULTIPLIER"""
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, skip_weekends=SKIP_WEEKENDS)
     now_utc = datetime.now(UTC)
-    is_4h_mode = (granularity == "H4")
+    is_hourly_mode = granularity in ["H2", "H4"]
+    hours_per_candle = 2 if granularity == "H2" else 4 if granularity == "H4" else 0
     
-    per_candle_minutes = 15 if granularity == "M15" else 240
-    candles_needed = 40 if granularity == "M15" else 26
+    if granularity == "M15":
+        per_candle_minutes = 15
+        candles_needed = 40
+    elif granularity == "H2":
+        per_candle_minutes = 120
+        candles_needed = 36  # ~3 days of 2H candles
+    else:  # H4
+        per_candle_minutes = 240
+        candles_needed = 26
+    
     from_time = now_utc - timedelta(minutes=per_candle_minutes * candles_needed)
     
     candles = fetch_candles(code, from_time, now_utc, granularity=granularity)
@@ -440,7 +464,10 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
         t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
         
-        if is_4h_mode:
+        if granularity == "H2":
+            bucket = get_2h_time_range(t_ist)
+            display_bucket = bucket
+        elif granularity == "H4":
             bucket = get_4h_time_range(t_ist)
             display_bucket = bucket
         else:
@@ -462,11 +489,9 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
         
         spike_diff = f"▲{vol - int(threshold)}" if visual_over else ""
         sentiment = get_sentiment(c)
-        
-        # Calculate body percentage for both modes
         body_pct = get_body_percentage(c)
         
-        # Build row based on mode - now both include body_pct
+        # Build row
         rows.append([
             t_ist.strftime("%Y-%m-%d %I:%M %p"),
             display_bucket,
@@ -488,7 +513,7 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
             "sentiment": sentiment
         }
         
-        # Alert based on multiplier (vol/avg >= alert_multiplier)
+        # Alert based on multiplier
         if idx in last_two_indices and alert_trigger and c.get("complete", True):
             candle_id = f"{name}_{c['time']}"
             if candle_id not in alerted_candles:
@@ -504,10 +529,15 @@ def process_instrument(name, code, bucket_size_minutes, granularity, alerted_can
     return rows, spikes_last_two, last_summary
 
 # ====== TABLE RENDERING ======
-def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
+def render_card(name, rows, bucket_minutes, summary, granularity):
     st.markdown(f"### {name}", help="Instrument")
     
-    if is_4h_mode:
+    is_hourly_mode = granularity in ["H2", "H4"]
+    
+    if granularity == "H2":
+        bucket_lbl = "Time Range"
+        comparison_label = "2 Hour Mode"
+    elif granularity == "H4":
         bucket_lbl = "Time Range"
         comparison_label = "4 Hour Mode"
     else:
@@ -524,36 +554,31 @@ def render_card(name, rows, bucket_minutes, summary, is_4h_mode=False):
         
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Volume", f"{summary['volume']:,}")
-        c2.metric(f"{'Range' if is_4h_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
+        c2.metric(f"{'Range' if is_hourly_mode else 'Bucket'} Avg", f"{summary['avg']:.0f}")
         c3.metric("Threshold", f"{summary['threshold']:.0f}")
         c4.metric("Multiplier", f"{summary['multiplier']:.2f}x")
     
-    # Both modes now have the same columns including Body %
-    if is_4h_mode:
-        columns = [
-            "Time (IST)",
-            "Time Range (4H)",
-            "Open",
-            "Volume", 
-            "Spike Δ", 
-            "Sentiment", 
-            "Body %"
-        ]
+    # Column headers based on mode
+    if granularity == "H2":
+        time_column_label = "Time Range (2H)"
+    elif granularity == "H4":
+        time_column_label = "Time Range (4H)"
     else:
-        columns = [
-            "Time (IST)",
-            f"Time Bucket ({bucket_lbl})",
-            "Open",
-            "Volume", 
-            "Spike Δ", 
-            "Sentiment",
-            "Body %"
-        ]
+        time_column_label = f"Time Bucket ({bucket_lbl})"
+    
+    columns = [
+        "Time (IST)",
+        time_column_label,
+        "Open",
+        "Volume", 
+        "Spike Δ", 
+        "Sentiment", 
+        "Body %"
+    ]
     
     trimmed_rows = rows[-DISPLAY_ROWS:] if len(rows) > DISPLAY_ROWS else rows
     df = pd.DataFrame(trimmed_rows, columns=columns)
     
-    # Both modes now include Body % in column_config
     column_config = {
         "Open": st.column_config.NumberColumn(format="%.1f"),
         "Volume": st.column_config.NumberColumn(format="%.0f"),
@@ -593,23 +618,33 @@ def run_volume_check():
     if st.session_state.candle_size == "4 hour":
         granularity = "H4"
         bucket_minutes = 240
-        is_4h_mode = True
-    else:
+    elif st.session_state.candle_size == "2 hour":
+        granularity = "H2"
+        bucket_minutes = 120
+    else:  # 15 min
         granularity = "M15"
         bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
-        is_4h_mode = False
     
     top_l, top_r = st.columns([3, 1])
     with top_l:
         st.subheader("📊 Volume Anomaly Detector")
         now_ist = datetime.now(IST).strftime("%Y-%m-%d %I:%M %p")
         tele_status = "ON" if st.session_state.enable_telegram_alerts else "OFF"
-        comparison_type = "Time Range" if is_4h_mode else f"Bucket: {bucket_minutes}m"
+        
+        if granularity == "H2":
+            comparison_type = "Time Range (2H)"
+            candle_display = "2h"
+        elif granularity == "H4":
+            comparison_type = "Time Range (4H)"
+            candle_display = "4h"
+        else:
+            comparison_type = f"Bucket: {bucket_minutes}m"
+            candle_display = "15m"
         
         st.markdown(
             f'<div class="badges">'
             f'<span class="badge">IST: {now_ist}</span>'
-            f'<span class="badge neutral">Candle: {"4h" if granularity=="H4" else "15m"}</span>'
+            f'<span class="badge neutral">Candle: {candle_display}</span>'
             f'<span class="badge neutral">{comparison_type}</span>'
             f'<span class="badge neutral">Alert Trigger ≥ {st.session_state.alert_multiplier:.2f}x</span>'
             f'<span class="badge neutral">Auto-refresh: {st.session_state.refresh_minutes}m</span>'
@@ -621,8 +656,6 @@ def run_volume_check():
         if st.button("🔄 Refresh Now", use_container_width=True, type="primary"):
             st.cache_data.clear()
             st.rerun()
-    
-    
     
     names = st.session_state.selected_instruments
     cols = st.columns(2) if len(names) > 1 else [st.container()]
@@ -641,7 +674,7 @@ def run_volume_check():
                 rows, spikes, summary = process_instrument(name, code, bucket_minutes, granularity, alerted_candles)
                 if rows:
                     all_rows_have_data = True
-                    render_card(name, rows, bucket_minutes, summary, is_4h_mode)
+                    render_card(name, rows, bucket_minutes, summary, granularity)
                 else:
                     st.warning(f"No recent data for {name}")
         
@@ -652,7 +685,13 @@ def run_volume_check():
     
     # Send Telegram alerts
     if all_spike_msgs:
-        comparison_label = "4H time range" if is_4h_mode else f"{format_bucket_label(bucket_minutes)} bucket"
+        if granularity == "H2":
+            comparison_label = "2H time range"
+        elif granularity == "H4":
+            comparison_label = "4H time range"
+        else:
+            comparison_label = f"{format_bucket_label(bucket_minutes)} bucket"
+            
         alert_msg = f"⚡ *Volume Spike Alert* — {comparison_label}\n\n" + "\n\n".join(all_spike_msgs)
         
         success = send_telegram_alert(alert_msg)
@@ -674,4 +713,3 @@ def run_volume_check():
 
 # ====== MAIN ======
 run_volume_check()
-
