@@ -129,7 +129,7 @@ if "bucket_choice" not in st.session_state:
 if "enable_telegram_alerts" not in st.session_state:
     st.session_state.enable_telegram_alerts = False
 if "candle_size" not in st.session_state:
-    st.session_state.candle_size = "15 min"
+    st.session_state.candle_size = "2 hour"
 if "alert_multiplier" not in st.session_state:
     st.session_state.alert_multiplier = 1.618
 
