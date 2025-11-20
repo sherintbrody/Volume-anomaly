@@ -86,10 +86,8 @@ TRADING_DAYS_FOR_AVERAGE = 21
 # Skip weekends is always ON
 SKIP_WEEKENDS = True
 
-# ====== SIDEBAR CONFIG ======
-st.sidebar.title("🔧 Backtest Settings")
-
-# Initialize all session state variables
+# ====== INITIALIZE SESSION STATE ======
+# Initialize all session state variables BEFORE sidebar widgets
 if "selected_instruments" not in st.session_state:
     st.session_state.selected_instruments = list(INSTRUMENTS.keys())
 if "bucket_choice" not in st.session_state:
@@ -101,6 +99,9 @@ if "backtest_date" not in st.session_state:
 if "threshold_multiplier" not in st.session_state:
     st.session_state.threshold_multiplier = 2.0
 
+# ====== SIDEBAR CONFIG ======
+st.sidebar.title("🔧 Backtest Settings")
+
 # Date Picker for Backtesting
 st.sidebar.date_input(
     "📅 Select Date to Backtest",
@@ -110,25 +111,26 @@ st.sidebar.date_input(
     help="Choose a date to analyze volume spikes using the previous 21 trading days"
 )
 
-st.sidebar.multiselect(
+# Multiselect - using key only, Streamlit manages the state
+selected_instruments = st.sidebar.multiselect(
     "Select Instruments to Analyze",
     options=list(INSTRUMENTS.keys()),
-    default=st.session_state.selected_instruments,
+    default=list(INSTRUMENTS.keys()),  # Use a static default
     key="selected_instruments"
 )
 
-st.sidebar.radio(
+# Candle Size Radio
+candle_size = st.sidebar.radio(
     "🕐 Candle Size",
     ["15 min", "2 hour", "4 hour"],
-    index=["15 min", "2 hour", "4 hour"].index(st.session_state.candle_size),
     key="candle_size"
 )
 
+# Bucket choice for 15 min mode
 if st.session_state.candle_size == "15 min":
-    st.sidebar.radio(
+    bucket_choice = st.sidebar.radio(
         "🕒 Select Time Bucket",
         ["15 min", "30 min", "1 hour"],
-        index=["15 min", "30 min", "1 hour"].index(st.session_state.bucket_choice),
         key="bucket_choice"
     )
 elif st.session_state.candle_size == "2 hour":
@@ -137,12 +139,12 @@ else:  # 4 hour
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
 
 # THRESHOLD MULTIPLIER SLIDER
-threshold_value = st.sidebar.slider(
+threshold_multiplier = st.sidebar.slider(
     "📈 Threshold Multiplier",
     min_value=1.0,
     max_value=5.0,
     step=0.1,
-    value=st.session_state.threshold_multiplier,
+    value=2.0,
     key="threshold_multiplier",
     help="Spike detected when: Volume > (21-Day Avg × Threshold)"
 )
