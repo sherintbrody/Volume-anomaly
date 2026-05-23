@@ -84,7 +84,7 @@ if "selected_instruments" not in st.session_state:
 if "bucket_choice" not in st.session_state:
     st.session_state.bucket_choice = "1 hour"
 if "candle_size" not in st.session_state:
-    st.session_state.candle_size = "15 min"
+    st.session_state.candle_size = "1 hour"
 if "backtest_date" not in st.session_state:
     st.session_state.backtest_date = datetime.now(IST).date() - timedelta(days=1)
 if "threshold_multiplier" not in st.session_state:
