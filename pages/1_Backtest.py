@@ -5,7 +5,6 @@ import pytz
 import pandas as pd
 from collections import defaultdict
 import wcwidth
-
 # ====== PAGE CONFIG ======
 st.set_page_config(
     page_title="Volume Spike Backtesting",
@@ -13,7 +12,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
 # ====== THEME/STYLE ======
 BADGE_CSS = """
 <style>
@@ -61,31 +59,24 @@ BADGE_CSS = """
 </style>
 """
 st.markdown(BADGE_CSS, unsafe_allow_html=True)
-
 # ====== CONFIG ======
 API_KEY = st.secrets["API_KEY"]
 ACCOUNT_ID = st.secrets["ACCOUNT_ID"]
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
-
 INSTRUMENTS = {
     "XAUUSD": "XAU_USD",
     "NAS100": "NAS100_USD",
     "US30": "US30_USD"
 }
-
 IST = pytz.timezone("Asia/Kolkata")
 UTC = pytz.utc
 headers = {"Authorization": f"Bearer {API_KEY}"}
-
 # How many candles to display in the table
 DISPLAY_ROWS = 13
-
 # Number of trading days to use for averaging
 TRADING_DAYS_FOR_AVERAGE = 21
-
 # Skip weekends is always ON
 SKIP_WEEKENDS = True
-
 # ====== INITIALIZE SESSION STATE ======
 # Initialize all session state variables BEFORE sidebar widgets
 if "selected_instruments" not in st.session_state:
@@ -98,10 +89,8 @@ if "backtest_date" not in st.session_state:
     st.session_state.backtest_date = datetime.now(IST).date() - timedelta(days=1)
 if "threshold_multiplier" not in st.session_state:
     st.session_state.threshold_multiplier = 2.0
-
 # ====== SIDEBAR CONFIG ======
 st.sidebar.title("🔧 Backtest Settings")
-
 # Date Picker for Backtesting
 st.sidebar.date_input(
     "📅 Select Date to Backtest",
@@ -110,7 +99,6 @@ st.sidebar.date_input(
     key="backtest_date",
     help="Choose a date to analyze volume spikes using the previous 21 trading days"
 )
-
 # Multiselect - using key only, Streamlit manages the state
 selected_instruments = st.sidebar.multiselect(
     "Select Instruments to Analyze",
@@ -118,26 +106,25 @@ selected_instruments = st.sidebar.multiselect(
     default=list(INSTRUMENTS.keys()),  # Use a static default
     key="selected_instruments"
 )
-
-# Candle Size Radio
+# Candle Size Radio — added "1 hour" option
 candle_size = st.sidebar.radio(
     "🕐 Candle Size",
-    ["15 min", "2 hour", "4 hour"],
+    ["15 min", "1 hour", "2 hour", "4 hour"],
     key="candle_size"
 )
-
-# Bucket choice for 15 min mode
+# Bucket choice for 15 min mode only
 if st.session_state.candle_size == "15 min":
     bucket_choice = st.sidebar.radio(
         "🕒 Select Time Bucket",
         ["15 min", "30 min", "1 hour"],
         key="bucket_choice"
     )
+elif st.session_state.candle_size == "1 hour":
+    st.sidebar.caption("🕒 Comparison: By candle position (1st-24th of day)")
 elif st.session_state.candle_size == "2 hour":
     st.sidebar.caption("🕒 Comparison: By candle position (1st-12th of day)")
 else:  # 4 hour
     st.sidebar.caption("🕒 Comparison: By candle position (1st-6th of day)")
-
 # THRESHOLD MULTIPLIER SLIDER
 threshold_multiplier = st.sidebar.slider(
     "📈 Threshold Multiplier",
@@ -148,22 +135,18 @@ threshold_multiplier = st.sidebar.slider(
     key="threshold_multiplier",
     help="Spike detected when: Volume > (21-Day Avg × Threshold)"
 )
-
 # Run Backtest Button
 run_backtest = st.sidebar.button("🔍 Run Backtest", type="primary", use_container_width=True)
-
 # Clear cache button for debugging
 if st.sidebar.button("🔄 Clear Cache & Rerun"):
     st.cache_data.clear()
     st.rerun()
-
 # ====== OANDA DATA FETCH ======
 @st.cache_resource
 def get_session():
     s = requests.Session()
     s.headers.update(headers)
     return s
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
     params = {
@@ -184,7 +167,6 @@ def fetch_candles(instrument_code, from_time, to_time, granularity="M15"):
         st.error(f"❌ Failed to fetch {instrument_code} data: {resp.text}")
         return []
     return resp.json().get("candles", [])
-
 # ====== UTILITIES ======
 def get_time_bucket(dt_ist, bucket_size_minutes):
     """Calculate time bucket for 15-minute mode"""
@@ -192,45 +174,44 @@ def get_time_bucket(dt_ist, bucket_size_minutes):
     bucket_start = dt_ist.replace(minute=bucket_start_minute, second=0, microsecond=0)
     bucket_end = bucket_start + timedelta(minutes=bucket_size_minutes)
     return f"{bucket_start.strftime('%I:%M %p')}–{bucket_end.strftime('%I:%M %p')}"
-
+def get_1h_time_range(dt_ist):
+    """Get the actual 1-hour time range starting from the candle's opening time"""
+    end_time = dt_ist + timedelta(hours=1)
+    return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
 def get_2h_time_range(dt_ist):
     """Get the actual 2-hour time range starting from the candle's opening time"""
     end_time = dt_ist + timedelta(hours=2)
     return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
-
 def get_4h_time_range(dt_ist):
     """Get the actual 4-hour time range starting from the candle's opening time"""
     end_time = dt_ist + timedelta(hours=4)
     return f"{dt_ist.strftime('%I:%M %p')}–{end_time.strftime('%I:%M %p')}"
-
 def get_candle_position_in_day(dt_ist):
     """Get the position of a 4H candle in the day (1st, 2nd, 3rd, etc.)"""
     day_start = dt_ist.replace(hour=0, minute=0, second=0, microsecond=0)
     hours_since_start = (dt_ist - day_start).total_seconds() / 3600
     position = int(hours_since_start // 4) + 1
     return f"Candle #{position}"
-
 def format_bucket_label(minutes):
     if minutes == 240:
         return "4 hour"
     elif minutes == 120:
         return "2 hour"
+    elif minutes == 60:
+        return "1 hour"
     elif minutes % 60 == 0:
         h = minutes // 60
         return f"{h} hour" if h == 1 else f"{h} hours"
     return f"{minutes} min"
-
 def is_weekend(date):
     """Check if a date is Saturday (5) or Sunday (6)"""
     return date.weekday() in [5, 6]
-
 def get_sentiment(candle):
     o = float(candle["mid"]["o"])
     c = float(candle["mid"]["c"])
     return "🟩" if c > o else "🟥" if c < o else "▪️"
-
 def get_body_percentage(candle):
-    """Calculate the body percentage of a candle (2H/4H only)"""
+    """Calculate the body percentage of a candle (1H/2H/4H only)"""
     try:
         o = float(candle["mid"]["o"])
         h = float(candle["mid"]["h"])
@@ -247,18 +228,15 @@ def get_body_percentage(candle):
         return f"{body_pct:.1f}%"
     except:
         return "–"
-
 def pad_display(s, width):
     pad_len = width - sum(wcwidth.wcwidth(ch) for ch in s)
     return s + " " * max(pad_len, 0)
-
 def get_spike_bar(multiplier):
     if multiplier < 1.2:
         return pad_display("", 5)
     bars = int((multiplier - 1.2) * 5)
     bar_str = "▃" * max(1, min(bars, 5))
     return pad_display(bar_str, 5)
-
 @st.cache_data(ttl=3600)
 def compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date):
     """Compute averages for comparison"""
@@ -266,9 +244,10 @@ def compute_bucket_averages(code, bucket_size_minutes, granularity, selected_dat
         return compute_4h_position_averages(code, selected_date)
     elif granularity == "H2":
         return compute_2h_position_averages(code, selected_date)
+    elif granularity == "H1":
+        return compute_1h_position_averages(code, selected_date)
     else:
         return compute_15m_bucket_averages(code, bucket_size_minutes, selected_date)
-
 def compute_15m_bucket_averages(code, bucket_size_minutes, selected_date):
     """Time-bucket based averaging for 15-minute mode"""
     bucket_volumes = defaultdict(list)
@@ -309,7 +288,46 @@ def compute_15m_bucket_averages(code, bucket_size_minutes, selected_date):
         days_back += 1
     
     return {b: (sum(vs) / len(vs)) for b, vs in bucket_volumes.items() if vs}
-
+def compute_1h_position_averages(code, selected_date):
+    """Position-based averaging for 1H mode"""
+    position_volumes = defaultdict(list)
+    
+    trading_days_collected = 0
+    days_back = 1
+    max_lookback = 60
+    
+    while trading_days_collected < TRADING_DAYS_FOR_AVERAGE and days_back < max_lookback:
+        day_ist = selected_date - timedelta(days=days_back)
+        
+        if is_weekend(day_ist):
+            days_back += 1
+            continue
+            
+        start_ist = IST.localize(datetime.combine(day_ist, time(0, 0)))
+        end_ist = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0)))
+        
+        start_utc = start_ist.astimezone(UTC)
+        end_utc = end_ist.astimezone(UTC)
+        
+        candles = fetch_candles(code, start_utc, end_utc, granularity="H1")
+        
+        if candles:
+            trading_days_collected += 1
+            
+            for c in candles:
+                if not c.get("complete", True):
+                    continue
+                try:
+                    t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.%f000Z")
+                except ValueError:
+                    t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
+                t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
+                time_range = get_1h_time_range(t_ist)
+                position_volumes[time_range].append(c["volume"])
+        
+        days_back += 1
+    
+    return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
 def compute_2h_position_averages(code, selected_date):
     """Position-based averaging for 2H mode"""
     position_volumes = defaultdict(list)
@@ -350,7 +368,6 @@ def compute_2h_position_averages(code, selected_date):
         days_back += 1
     
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
-
 def compute_4h_position_averages(code, selected_date):
     """Position-based averaging for 4H mode"""
     position_volumes = defaultdict(list)
@@ -391,13 +408,12 @@ def compute_4h_position_averages(code, selected_date):
         days_back += 1
     
     return {p: (sum(vs) / len(vs)) for p, vs in position_volumes.items() if vs}
-
 # ====== CORE PROCESS ======
 def process_instrument(name, code, bucket_size_minutes, granularity, selected_date, threshold_multiplier):
     """Process instrument for the selected backtest date"""
     bucket_avg = compute_bucket_averages(code, bucket_size_minutes, granularity, selected_date)
     
-    is_multi_hour_mode = (granularity in ["H2", "H4"])
+    is_multi_hour_mode = (granularity in ["H1", "H2", "H4"])
     
     # Fetch data for the selected date
     start_ist = IST.localize(datetime.combine(selected_date, time(0, 0)))
@@ -420,7 +436,10 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
             t_utc = datetime.strptime(c["time"], "%Y-%m-%dT%H:%M:%S.000Z")
         t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
         
-        if granularity == "H2":
+        if granularity == "H1":
+            bucket = get_1h_time_range(t_ist)
+            display_bucket = bucket
+        elif granularity == "H2":
             bucket = get_2h_time_range(t_ist)
             display_bucket = bucket
         elif granularity == "H4":
@@ -471,7 +490,6 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
                 sentiment
             ])
         
-        # Collect spikes (not displayed separately anymore, but kept for potential future use)
         if over:
             spikes_found.append({
                 "instrument": name,
@@ -485,14 +503,16 @@ def process_instrument(name, code, bucket_size_minutes, granularity, selected_da
             })
     
     return rows, spikes_found
-
 # ====== TABLE RENDERING ======
 def render_card(name, rows, bucket_minutes, granularity="M15"):
     st.markdown(f"### {name}", help="Instrument")
     
-    is_multi_hour_mode = (granularity in ["H2", "H4"])
+    is_multi_hour_mode = (granularity in ["H1", "H2", "H4"])
     
-    if granularity == "H2":
+    if granularity == "H1":
+        bucket_lbl = "Time Range"
+        comparison_label = "1 Hour Mode"
+    elif granularity == "H2":
         bucket_lbl = "Time Range"
         comparison_label = "2 Hour Mode"
     elif granularity == "H4":
@@ -510,7 +530,12 @@ def render_card(name, rows, bucket_minutes, granularity="M15"):
     
     # Define columns
     if is_multi_hour_mode:
-        time_label = "Time Range (2H)" if granularity == "H2" else "Time Range (4H)"
+        if granularity == "H1":
+            time_label = "Time Range (1H)"
+        elif granularity == "H2":
+            time_label = "Time Range (2H)"
+        else:
+            time_label = "Time Range (4H)"
         columns = [
             "Time (IST)",
             time_label,
@@ -555,7 +580,6 @@ def render_card(name, rows, bucket_minutes, granularity="M15"):
         file_name=f"{name}_volume_spikes_{st.session_state.backtest_date}.csv",
         mime="text/csv"
     )
-
 # ====== BACKTEST EXECUTION ======
 def run_backtest_analysis():
     selected_date = st.session_state.backtest_date
@@ -571,7 +595,10 @@ def run_backtest_analysis():
     elif st.session_state.candle_size == "2 hour":
         granularity = "H2"
         bucket_minutes = 120
-    else:
+    elif st.session_state.candle_size == "1 hour":
+        granularity = "H1"
+        bucket_minutes = 60
+    else:  # 15 min
         granularity = "M15"
         bucket_minutes = {"15 min": 15, "30 min": 30, "1 hour": 60}[st.session_state.bucket_choice]
     
@@ -585,6 +612,9 @@ def run_backtest_analysis():
     elif granularity == "H2":
         candle_label = "2h"
         bucket_label = "2h"
+    elif granularity == "H1":
+        candle_label = "1h"
+        bucket_label = "1h"
     else:
         candle_label = "15m"
         bucket_label = st.session_state.bucket_choice
@@ -618,7 +648,6 @@ def run_backtest_analysis():
         
         render_card(name, rows, bucket_minutes, granularity)
         st.divider()
-
 # ====== MAIN ======
 if run_backtest:
     run_backtest_analysis()
@@ -628,7 +657,7 @@ else:
     
     1. **Select a historical date** to analyze
     2. **Choose instruments** (XAUUSD, NAS100, US30)
-    3. **Pick candle size** (15 min, 2 hour, or 4 hour)
+    3. **Pick candle size** (15 min, 1 hour, 2 hour, or 4 hour)
     4. **Set threshold multiplier** (default: 2.0)
     5. **Run backtest** to see volume spikes using 21-day historical averages
     
@@ -640,6 +669,7 @@ else:
     
     **Timeframe Options:**
     - **15 min**: Time bucket comparison (15m, 30m, 1h buckets)
+    - **1 hour**: Position-based comparison (up to 24 candles per day)
     - **2 hour**: Position-based comparison (up to 12 candles per day)
     - **4 hour**: Position-based comparison (up to 6 candles per day)
     """)
