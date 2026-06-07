@@ -212,9 +212,9 @@ def get_body_percentage(candle):
 @st.cache_data(ttl=3600)
 def compute_bucket_averages(code, granularity, reference_date):
     """
-    reference_date: the first day we want to analyse.
+    reference_date : first day we want to analyse.
     Averages are built from the 21 trading days BEFORE reference_date.
-    For Daily mode a single scalar average is returned keyed as 'DAILY_AVG'.
+    Daily mode returns a single scalar keyed as 'DAILY_AVG'.
     """
     if granularity == "H4":
         return compute_4h_position_averages(code, reference_date)
@@ -235,8 +235,12 @@ def compute_1h_position_averages(code, reference_date):
             days_back += 1
             continue
 
-        start_utc = IST.localize(datetime.combine(day_ist, time(0, 0))).astimezone(UTC)
-        end_utc   = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0))).astimezone(UTC)
+        start_utc = IST.localize(
+            datetime.combine(day_ist, time(0, 0))
+        ).astimezone(UTC)
+        end_utc = IST.localize(
+            datetime.combine(day_ist + timedelta(days=1), time(0, 0))
+        ).astimezone(UTC)
 
         candles = fetch_candles(code, start_utc, end_utc, granularity="H1")
         if candles:
@@ -262,8 +266,12 @@ def compute_4h_position_averages(code, reference_date):
             days_back += 1
             continue
 
-        start_utc = IST.localize(datetime.combine(day_ist, time(0, 0))).astimezone(UTC)
-        end_utc   = IST.localize(datetime.combine(day_ist + timedelta(days=1), time(0, 0))).astimezone(UTC)
+        start_utc = IST.localize(
+            datetime.combine(day_ist, time(0, 0))
+        ).astimezone(UTC)
+        end_utc = IST.localize(
+            datetime.combine(day_ist + timedelta(days=1), time(0, 0))
+        ).astimezone(UTC)
 
         candles = fetch_candles(code, start_utc, end_utc, granularity="H4")
         if candles:
@@ -294,14 +302,17 @@ def compute_daily_averages(code, reference_date):
             continue
 
         # Fetch a 2-day window to ensure OANDA returns the daily candle
-        start_utc = IST.localize(datetime.combine(day_ist, time(0, 0))).astimezone(UTC)
-        end_utc   = IST.localize(datetime.combine(day_ist + timedelta(days=2), time(0, 0))).astimezone(UTC)
+        start_utc = IST.localize(
+            datetime.combine(day_ist, time(0, 0))
+        ).astimezone(UTC)
+        end_utc = IST.localize(
+            datetime.combine(day_ist + timedelta(days=2), time(0, 0))
+        ).astimezone(UTC)
 
         candles = fetch_candles(code, start_utc, end_utc, granularity="D")
         for c in candles:
             t_utc = parse_candle_time(c["time"])
             t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            # Match candle to the intended calendar date
             if (t_ist.date() == day_ist or t_utc.date() == day_ist) and c.get("complete", True):
                 daily_volumes.append(c["volume"])
                 trading_days_collected += 1
@@ -321,20 +332,23 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
     the lookback window is always the 21 days that precede the candle being examined.
     """
     bucket_avg = compute_bucket_averages(code, granularity, selected_date)
-
-    rows        = []
+    rows = []
     spikes_found = []
 
-    # ── Daily mode ────────────────────────────────────────────────────────────
+    # ── Daily mode ─────────────────────────────────────────────────────────────
     if granularity == "D":
-        start_utc = IST.localize(datetime.combine(selected_date, time(0, 0))).astimezone(UTC)
-        end_utc   = IST.localize(datetime.combine(selected_date + timedelta(days=2), time(0, 0))).astimezone(UTC)
+        start_utc = IST.localize(
+            datetime.combine(selected_date, time(0, 0))
+        ).astimezone(UTC)
+        end_utc = IST.localize(
+            datetime.combine(selected_date + timedelta(days=2), time(0, 0))
+        ).astimezone(UTC)
 
         candles = fetch_candles(code, start_utc, end_utc, granularity="D")
         if not candles:
             return [], []
 
-        avg       = bucket_avg.get("DAILY_AVG", 0)
+        avg = bucket_avg.get("DAILY_AVG", 0)
         threshold = avg * threshold_multiplier if avg else 0
 
         for c in candles:
@@ -345,16 +359,16 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
             if t_ist.date() != selected_date and t_utc.date() != selected_date:
                 continue
 
-            vol              = c["volume"]
-            over             = threshold > 0 and vol > threshold
+            vol = c["volume"]
+            over = threshold > 0 and vol > threshold
             actual_multiplier = (vol / avg) if avg > 0 else 0
-            spike_diff       = f"▲{vol - int(threshold)}" if over else ""
-            sentiment        = get_sentiment(c)
-            body_pct         = get_body_percentage(c)
+            spike_diff = f"▲{vol - int(threshold)}" if over else ""
+            sentiment = get_sentiment(c)
+            body_pct = get_body_percentage(c)
 
             rows.append([
-                t_ist.strftime("%Y-%m-%d"),
-                "Full Day",
+                t_ist.strftime("%Y-%m-%d"),  # Date column
+                "Full Day",                  # Session column (unique — not "Date")
                 vol,
                 int(avg) if avg > 0 else 0,
                 int(threshold) if threshold > 0 else 0,
@@ -366,21 +380,25 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
 
             if over:
                 spikes_found.append({
-                    "instrument":       name,
-                    "time":             t_ist.strftime("%Y-%m-%d"),
-                    "volume":           vol,
-                    "avg":              int(avg),
-                    "threshold":        int(threshold),
-                    "spike_diff":       spike_diff,
-                    "sentiment":        sentiment,
+                    "instrument": name,
+                    "time": t_ist.strftime("%Y-%m-%d"),
+                    "volume": vol,
+                    "avg": int(avg),
+                    "threshold": int(threshold),
+                    "spike_diff": spike_diff,
+                    "sentiment": sentiment,
                     "actual_multiplier": actual_multiplier,
                 })
 
         return rows, spikes_found
 
-    # ── Intraday modes (H1, H4) ───────────────────────────────────────────────
-    start_utc = IST.localize(datetime.combine(selected_date, time(0, 0))).astimezone(UTC)
-    end_utc   = IST.localize(datetime.combine(selected_date + timedelta(days=1), time(0, 0))).astimezone(UTC)
+    # ── Intraday modes (H1, H4) ────────────────────────────────────────────────
+    start_utc = IST.localize(
+        datetime.combine(selected_date, time(0, 0))
+    ).astimezone(UTC)
+    end_utc = IST.localize(
+        datetime.combine(selected_date + timedelta(days=1), time(0, 0))
+    ).astimezone(UTC)
 
     candles = fetch_candles(code, start_utc, end_utc, granularity=granularity)
     if not candles:
@@ -388,17 +406,16 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
 
     for c in candles:
         t_ist = parse_candle_time(c["time"]).replace(tzinfo=UTC).astimezone(IST)
-
         bucket = get_1h_time_range(t_ist) if granularity == "H1" else get_4h_time_range(t_ist)
 
-        vol               = c["volume"]
-        avg               = bucket_avg.get(bucket, 0)
-        threshold         = avg * threshold_multiplier if avg else 0
-        over              = threshold > 0 and vol > threshold
+        vol = c["volume"]
+        avg = bucket_avg.get(bucket, 0)
+        threshold = avg * threshold_multiplier if avg else 0
+        over = threshold > 0 and vol > threshold
         actual_multiplier = (vol / avg) if avg > 0 else 0
-        spike_diff        = f"▲{vol - int(threshold)}" if over else ""
-        sentiment         = get_sentiment(c)
-        body_pct          = get_body_percentage(c)
+        spike_diff = f"▲{vol - int(threshold)}" if over else ""
+        sentiment = get_sentiment(c)
+        body_pct = get_body_percentage(c)
 
         rows.append([
             t_ist.strftime("%Y-%m-%d %I:%M %p"),
@@ -414,13 +431,13 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
 
         if over:
             spikes_found.append({
-                "instrument":       name,
-                "time":             t_ist.strftime("%I:%M %p"),
-                "volume":           vol,
-                "avg":              int(avg),
-                "threshold":        int(threshold),
-                "spike_diff":       spike_diff,
-                "sentiment":        sentiment,
+                "instrument": name,
+                "time": t_ist.strftime("%I:%M %p"),
+                "volume": vol,
+                "avg": int(avg),
+                "threshold": int(threshold),
+                "spike_diff": spike_diff,
+                "sentiment": sentiment,
                 "actual_multiplier": actual_multiplier,
             })
 
@@ -428,7 +445,7 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
 
 # ====== CORE PROCESS — date range ======
 def process_date_range(name, code, granularity, start_date, end_date, threshold_multiplier):
-    all_rows   = []
+    all_rows = []
     all_spikes = []
     current_day = start_date
 
@@ -452,44 +469,65 @@ def render_card(name, rows, granularity, start_date=None, end_date=None):
 
     if granularity == "H1":
         comparison_label = "1 Hour Mode"
+        date_col         = "Time (IST)"
         time_col_label   = "Time Range (1H)"
     elif granularity == "H4":
         comparison_label = "4 Hour Mode"
+        date_col         = "Time (IST)"
         time_col_label   = "Time Range (4H)"
     else:  # Daily
         comparison_label = "Daily Mode"
-        time_col_label   = "Date"
+        date_col         = "Date"
+        time_col_label   = "Session"   # ← must differ from date_col to avoid duplicate column error
 
     st.markdown(
         f'<div class="badges"><span class="badge neutral">{comparison_label}</span></div>',
         unsafe_allow_html=True
     )
 
-    # All modes now share the same 9-column schema
-    date_col = "Date" if granularity == "D" else "Time (IST)"
+    # All modes share the same 9-column schema — column names are now always unique
     columns = [
         date_col,
         time_col_label,
-        "Volume", "21-Day Avg", "Threshold",
-        "Actual Mult", "Spike Δ", "Sentiment", "Body %",
+        "Volume",
+        "21-Day Avg",
+        "Threshold",
+        "Actual Mult",
+        "Spike Δ",
+        "Sentiment",
+        "Body %",
     ]
 
     df = pd.DataFrame(rows, columns=columns)
 
     column_config = {
-        "Volume":      st.column_config.NumberColumn(format="%d", help="Actual volume for this candle"),
-        "21-Day Avg":  st.column_config.NumberColumn(format="%d", help="Average volume from previous 21 trading days"),
-        "Threshold":   st.column_config.NumberColumn(
-                           format="%d",
-                           help=f"21-Day Avg × {st.session_state.threshold_multiplier} = Spike cutoff"
-                       ),
-        "Actual Mult": st.column_config.TextColumn(help="Volume ÷ 21-Day Avg"),
-        "Spike Δ":     st.column_config.TextColumn(help="Volume − Threshold (only when spike detected)"),
-        "Sentiment":   st.column_config.TextColumn(help="🟩 up  🟥 down  ▪️ flat"),
-        "Body %":      st.column_config.TextColumn(help="Body as % of total candle range"),
+        "Volume": st.column_config.NumberColumn(
+            format="%d",
+            help="Actual volume for this candle"
+        ),
+        "21-Day Avg": st.column_config.NumberColumn(
+            format="%d",
+            help="Average volume from previous 21 trading days"
+        ),
+        "Threshold": st.column_config.NumberColumn(
+            format="%d",
+            help=f"21-Day Avg × {st.session_state.threshold_multiplier} = Spike cutoff"
+        ),
+        "Actual Mult": st.column_config.TextColumn(
+            help="Volume ÷ 21-Day Avg (shows true ratio)"
+        ),
+        "Spike Δ": st.column_config.TextColumn(
+            help="Volume − Threshold (only shown when spike detected)"
+        ),
+        "Sentiment": st.column_config.TextColumn(
+            help="🟩 up  🟥 down  ▪️ flat"
+        ),
+        "Body %": st.column_config.TextColumn(
+            help="Body as % of total candle range. Higher = stronger directional move."
+        ),
     }
 
-    # Daily mode: one row per day — shrink table height accordingly
+    # Daily: dynamic height based on row count; intraday: fixed 520px
     table_height = max(120, min(len(df) * 40 + 60, 600)) if granularity == "D" else 520
 
     st.dataframe(
@@ -500,7 +538,11 @@ def render_card(name, rows, granularity, start_date=None, end_date=None):
         column_config=column_config,
     )
 
-    date_label = f"{start_date}_{end_date}" if (start_date and end_date) else datetime.now(IST).strftime("%Y-%m-%d")
+    date_label = (
+        f"{start_date}_{end_date}"
+        if (start_date and end_date)
+        else datetime.now(IST).strftime("%Y-%m-%d")
+    )
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="📥 Export to CSV",
@@ -584,7 +626,7 @@ else:
     - Weekends are automatically excluded from all averages
 
     **Timeframe Options:**
-    - **1 hour** — up to 24 candles per day, compared by time-of-day slot
-    - **4 hour** — up to 6 candles per day, compared by time-of-day slot
-    - **Daily**  — one candle per day, compared against the 21-day avg daily volume
+    - **1 hour**  — up to 24 candles per day, compared by time-of-day slot
+    - **4 hour**  — up to 6 candles per day, compared by time-of-day slot
+    - **Daily**   — one candle per day, compared against the 21-day avg daily volume
     """)
