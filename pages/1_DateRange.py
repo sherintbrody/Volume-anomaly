@@ -212,7 +212,7 @@ def get_body_percentage(candle):
 @st.cache_data(ttl=3600)
 def compute_bucket_averages(code, granularity, reference_date):
     """
-    reference_date : first day we want to analyse.
+    reference_date : the day we want to analyse.
     Averages are built from the 21 trading days BEFORE reference_date.
     Daily mode returns a single scalar keyed as 'DAILY_AVG'.
     """
@@ -288,7 +288,11 @@ def compute_4h_position_averages(code, reference_date):
 def compute_daily_averages(code, reference_date):
     """
     Collect the daily candle volume for each of the 21 trading days
-    before reference_date, then return a single average keyed as 'DAILY_AVG'.
+    BEFORE reference_date, then return a single average keyed as 'DAILY_AVG'.
+
+    IMPORTANT: We match strictly on t_utc.date() because OANDA daily candles
+    are anchored to NY close (UTC) — never use IST date here, or the same
+    physical candle could be matched to two different calendar days.
     """
     daily_volumes = []
     trading_days_collected = 0
@@ -312,8 +316,8 @@ def compute_daily_averages(code, reference_date):
         candles = fetch_candles(code, start_utc, end_utc, granularity="D")
         for c in candles:
             t_utc = parse_candle_time(c["time"])
-            t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
-            if (t_ist.date() == day_ist or t_utc.date() == day_ist) and c.get("complete", True):
+            # Strict UTC-date match only — and break after first match
+            if t_utc.date() == day_ist and c.get("complete", True):
                 daily_volumes.append(c["volume"])
                 trading_days_collected += 1
                 break
@@ -328,8 +332,8 @@ def compute_daily_averages(code, reference_date):
 def process_instrument(name, code, granularity, selected_date, threshold_multiplier):
     """
     Process one calendar day.
-    For Daily mode the average is recomputed relative to selected_date so that
-    the lookback window is always the 21 days that precede the candle being examined.
+    Averages are recomputed relative to selected_date so the lookback window
+    is always the 21 trading days that precede the candle being examined.
     """
     bucket_avg = compute_bucket_averages(code, granularity, selected_date)
     rows = []
@@ -351,44 +355,48 @@ def process_instrument(name, code, granularity, selected_date, threshold_multipl
         avg = bucket_avg.get("DAILY_AVG", 0)
         threshold = avg * threshold_multiplier if avg else 0
 
+        # Strict UTC-date match — find THE ONE candle for selected_date
+        matched_candle = None
         for c in candles:
             t_utc = parse_candle_time(c["time"])
-            t_ist = t_utc.replace(tzinfo=UTC).astimezone(IST)
+            if t_utc.date() == selected_date and c.get("complete", True):
+                matched_candle = c
+                break
 
-            # Only keep the candle that belongs to selected_date
-            if t_ist.date() != selected_date and t_utc.date() != selected_date:
-                continue
+        if matched_candle is None:
+            return [], []
 
-            vol = c["volume"]
-            over = threshold > 0 and vol > threshold
-            actual_multiplier = (vol / avg) if avg > 0 else 0
-            spike_diff = f"▲{vol - int(threshold)}" if over else ""
-            sentiment = get_sentiment(c)
-            body_pct = get_body_percentage(c)
+        c = matched_candle
+        vol = c["volume"]
+        over = threshold > 0 and vol > threshold
+        actual_multiplier = (vol / avg) if avg > 0 else 0
+        spike_diff = f"▲{vol - int(threshold)}" if over else ""
+        sentiment = get_sentiment(c)
+        body_pct = get_body_percentage(c)
 
-            rows.append([
-                t_ist.strftime("%Y-%m-%d"),  # Date column
-                "Full Day",                  # Session column (unique — not "Date")
-                vol,
-                int(avg) if avg > 0 else 0,
-                int(threshold) if threshold > 0 else 0,
-                f"{actual_multiplier:.2f}x",
-                spike_diff,
-                sentiment,
-                body_pct,
-            ])
+        rows.append([
+            selected_date.strftime("%Y-%m-%d"),  # always use selected_date for consistency
+            "Full Day",
+            vol,
+            int(avg) if avg > 0 else 0,
+            int(threshold) if threshold > 0 else 0,
+            f"{actual_multiplier:.2f}x",
+            spike_diff,
+            sentiment,
+            body_pct,
+        ])
 
-            if over:
-                spikes_found.append({
-                    "instrument": name,
-                    "time": t_ist.strftime("%Y-%m-%d"),
-                    "volume": vol,
-                    "avg": int(avg),
-                    "threshold": int(threshold),
-                    "spike_diff": spike_diff,
-                    "sentiment": sentiment,
-                    "actual_multiplier": actual_multiplier,
-                })
+        if over:
+            spikes_found.append({
+                "instrument": name,
+                "time": selected_date.strftime("%Y-%m-%d"),
+                "volume": vol,
+                "avg": int(avg),
+                "threshold": int(threshold),
+                "spike_diff": spike_diff,
+                "sentiment": sentiment,
+                "actual_multiplier": actual_multiplier,
+            })
 
         return rows, spikes_found
 
@@ -485,7 +493,6 @@ def render_card(name, rows, granularity, start_date=None, end_date=None):
         unsafe_allow_html=True
     )
 
-    # All modes share the same 9-column schema — column names are now always unique
     columns = [
         date_col,
         time_col_label,
@@ -514,10 +521,10 @@ def render_card(name, rows, granularity, start_date=None, end_date=None):
             help=f"21-Day Avg × {st.session_state.threshold_multiplier} = Spike cutoff"
         ),
         "Actual Mult": st.column_config.TextColumn(
-            help="Volume ÷ 21-Day Avg (shows true ratio)"
+            help="Volume ÷ 21-Day Avg (true ratio)"
         ),
         "Spike Δ": st.column_config.TextColumn(
-            help="Volume − Threshold (only shown when spike detected)"
+            help="Volume − Threshold (shown only when spike detected)"
         ),
         "Sentiment": st.column_config.TextColumn(
             help="🟩 up  🟥 down  ▪️ flat"
